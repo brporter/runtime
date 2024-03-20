@@ -4,7 +4,7 @@
     <ProducesDotNetReleaseShippingAssets>true</ProducesDotNetReleaseShippingAssets>
     <!-- This avoids creating VS.*.symbols.nupkg packages that are identical to the original package. -->
     <AutoGenerateSymbolPackages>false</AutoGenerateSymbolPackages>
-    <!-- TODO: Change condition when runtime's official publishing starts using Publishing.props:
+    <!-- TODO: Change condition when runtime's official publishing starts using Publishing.proj:
          https://github.com/dotnet/source-build/issues/4239 -->
     <EnableDefaultPublishItems Condition="'$(DotNetBuildRepo)' == 'true'">true</EnableDefaultPublishItems>
   </PropertyGroup>
