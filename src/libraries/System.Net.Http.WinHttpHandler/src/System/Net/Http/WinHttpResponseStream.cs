@@ -120,32 +120,22 @@ namespace System.Net.Http
                 // Loop until there's no more data to be read
                 while (true)
                 {
-                    // Query for data available
-                    lock (_state.Lock)
-                    {
-                        if (!Interop.WinHttp.WinHttpQueryDataAvailable(_requestHandle, IntPtr.Zero))
-                        {
-                            throw new IOException(SR.net_http_io_read, WinHttpException.CreateExceptionUsingLastError(nameof(Interop.WinHttp.WinHttpQueryDataAvailable)));
-                        }
-                    }
-                    int bytesAvailable = await _state.LifecycleAwaitable;
-                    if (bytesAvailable == 0)
-                    {
-                        ReadResponseTrailers();
-                        break;
-                    }
-                    Debug.Assert(bytesAvailable > 0);
-
                     // Read the available data
                     cancellationToken.ThrowIfCancellationRequested();
+
                     lock (_state.Lock)
                     {
-                        if (!Interop.WinHttp.WinHttpReadData(_requestHandle, Marshal.UnsafeAddrOfPinnedArrayElement(buffer, 0), (uint)Math.Min(bytesAvailable, buffer.Length), IntPtr.Zero))
+                        var result = Interop.WinHttp.WinHttpReadDataEx(_requestHandle, Marshal.UnsafeAddrOfPinnedArrayElement(buffer, 0), (uint)buffer.Length, IntPtr.Zero, 0, 0, IntPtr.Zero);
+
+                        if (Interop.WinHttp.ERROR_IO_PENDING != result
+                            && Interop.WinHttp.ERROR_SUCCESS != result)
                         {
-                            throw new IOException(SR.net_http_io_read, WinHttpException.CreateExceptionUsingLastError(nameof(Interop.WinHttp.WinHttpReadData)));
+                            throw new IOException(SR.net_http_io_read, WinHttpException.CreateExceptionUsingError(result, nameof(Interop.WinHttp.WinHttpReadDataEx)));
                         }
                     }
+
                     int bytesRead = await _state.LifecycleAwaitable;
+
                     if (bytesRead == 0)
                     {
                         ReadResponseTrailers();
@@ -230,24 +220,12 @@ namespace System.Net.Http
                 lock (_state.Lock)
                 {
                     Debug.Assert(!_requestHandle.IsInvalid);
-                    if (!Interop.WinHttp.WinHttpQueryDataAvailable(_requestHandle, IntPtr.Zero))
-                    {
-                        throw new IOException(SR.net_http_io_read, WinHttpException.CreateExceptionUsingLastError(nameof(Interop.WinHttp.WinHttpQueryDataAvailable)));
-                    }
-                }
+                    var result = Interop.WinHttp.WinHttpReadDataEx(_requestHandle, Marshal.UnsafeAddrOfPinnedArrayElement(buffer, offset), (uint)count, IntPtr.Zero, 0, 0, IntPtr.Zero);
 
-                int bytesAvailable = await _state.LifecycleAwaitable;
-
-                lock (_state.Lock)
-                {
-                    Debug.Assert(!_requestHandle.IsInvalid);
-                    if (!Interop.WinHttp.WinHttpReadData(
-                        _requestHandle,
-                        Marshal.UnsafeAddrOfPinnedArrayElement(buffer, offset),
-                        (uint)Math.Min(bytesAvailable, count),
-                        IntPtr.Zero))
+                    if (Interop.WinHttp.ERROR_IO_PENDING != result
+                        && Interop.WinHttp.ERROR_SUCCESS != result)
                     {
-                        throw new IOException(SR.net_http_io_read, WinHttpException.CreateExceptionUsingLastError(nameof(Interop.WinHttp.WinHttpReadData)));
+                        throw new IOException(SR.net_http_io_read, WinHttpException.CreateExceptionUsingError(result, nameof(Interop.WinHttp.WinHttpReadDataEx)));
                     }
                 }
 

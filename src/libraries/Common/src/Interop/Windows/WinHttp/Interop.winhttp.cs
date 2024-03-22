@@ -99,18 +99,14 @@ internal static partial class Interop
             IntPtr reserved);
 
         [LibraryImport(Interop.Libraries.WinHttp, SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static partial bool WinHttpQueryDataAvailable(
-            SafeWinHttpHandle requestHandle,
-            IntPtr parameterIgnoredAndShouldBeNullForAsync);
-
-        [LibraryImport(Interop.Libraries.WinHttp, SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static partial bool WinHttpReadData(
+        public static partial int WinHttpReadDataEx(
             SafeWinHttpHandle requestHandle,
             IntPtr buffer,
             uint bufferSize,
-            IntPtr parameterIgnoredAndShouldBeNullForAsync);
+            IntPtr parameterIgnoredAndShouldBeNullForAsync,
+            ulong ullFlags,
+            uint ignored,
+            IntPtr reservedAndShouldBeIntPtrZero);
 
         [LibraryImport(Interop.Libraries.WinHttp, SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
         [return: MarshalAs(UnmanagedType.Bool)]

@@ -44,7 +44,7 @@ namespace System.Net.Http
             }
             _contentConsumed = true;
 
-            const int BufferSize = 8192;
+            const int BufferSize = 16384;
             Task copyTask = _content.CopyToAsync(stream, BufferSize, cancellationToken);
             if (copyTask.IsCompleted)
             {

@@ -17,6 +17,7 @@ internal static partial class Interop
         public const uint ERROR_INVALID_HANDLE = 6;
         public const uint ERROR_INVALID_PARAMETER = 87;
         public const uint ERROR_INSUFFICIENT_BUFFER = 122;
+        public const uint ERROR_IO_PENDING = 997;
         public const uint ERROR_NOT_FOUND = 1168;
         public const uint ERROR_WINHTTP_INVALID_OPTION = 12009;
         public const uint ERROR_WINHTTP_LOGIN_FAILURE = 12015;
