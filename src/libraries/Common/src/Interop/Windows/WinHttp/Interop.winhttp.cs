@@ -12,6 +12,31 @@ internal static partial class Interop
 {
     internal static partial class WinHttp
     {
+        private static readonly Lazy<bool> IsReadExAvailable = new(
+            () => {
+                var mi = typeof(WinHttp).GetMethod("WinHttpReadDataEx");
+
+                if (mi is not null)
+                {
+                    try
+                    {
+                        Marshal.Prelink(mi);
+                    }
+                    catch (EntryPointNotFoundException)
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
+            },
+            System.Threading.LazyThreadSafetyMode.ExecutionAndPublication);
+
+        public static bool IsWinHttpReadDataExAvailable
+        {
+            get => IsReadExAvailable.Value;
+        }
+
         [LibraryImport(Interop.Libraries.WinHttp, SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
         public static partial SafeWinHttpHandle WinHttpOpen(
             IntPtr userAgent,
@@ -97,6 +122,20 @@ internal static partial class Interop
         public static partial bool WinHttpReceiveResponse(
             SafeWinHttpHandle requestHandle,
             IntPtr reserved);
+
+        [LibraryImport(Interop.Libraries.WinHttp, SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static partial bool WinHttpQueryDataAvailable(
+            SafeWinHttpHandle requestHandle,
+            IntPtr parameterIgnoredAndShouldBeNullForAsync);
+
+        [LibraryImport(Interop.Libraries.WinHttp, SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static partial bool WinHttpReadData(
+            SafeWinHttpHandle requestHandle,
+            IntPtr buffer,
+            uint bufferSize,
+            IntPtr parameterIgnoredAndShouldBeNullForAsync);
 
         [LibraryImport(Interop.Libraries.WinHttp, SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
         public static partial int WinHttpReadDataEx(
