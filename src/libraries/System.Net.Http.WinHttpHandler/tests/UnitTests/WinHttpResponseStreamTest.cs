@@ -214,6 +214,7 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
         {
             Stream stream = MakeResponseStream();
 
+            TestControl.IsReadExAvailable = false;
             TestControl.WinHttpQueryDataAvailable.ErrorWithApiCall = true;
 
             Task t = stream.ReadAsync(new byte[1], 0, 1);
@@ -226,6 +227,7 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
         {
             Stream stream = MakeResponseStream();
 
+            TestControl.IsReadExAvailable = false;
             TestControl.WinHttpQueryDataAvailable.ErrorOnCompletion = true;
 
             Task t = stream.ReadAsync(new byte[1], 0, 1);
@@ -238,6 +240,7 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
         {
             Stream stream = MakeResponseStream();
 
+            TestControl.IsReadExAvailable = false;
             TestControl.WinHttpReadData.ErrorWithApiCall = true;
 
             Task t = stream.ReadAsync(new byte[1], 0, 1);
@@ -250,6 +253,7 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
         {
             Stream stream = MakeResponseStream();
 
+            TestControl.IsReadExAvailable = false;
             TestControl.WinHttpReadData.ErrorOnCompletion = true;
 
             Task t = stream.ReadAsync(new byte[1], 0, 1);
@@ -262,6 +266,7 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
         {
             Stream stream = MakeResponseStream();
 
+            TestControl.IsReadExAvailable = true;
             TestControl.WinHttpReadDataEx.ErrorWithApiCall = true;
 
             Task t = stream.ReadAsync(new byte[1], 0, 1);
@@ -274,17 +279,20 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
         {
             Stream stream = MakeResponseStream();
 
+            TestControl.IsReadExAvailable = true;
             TestControl.WinHttpReadDataEx.ErrorOnCompletion = true;
 
             Task t = stream.ReadAsync(new byte[1], 0, 1);
             AggregateException ex = Assert.Throws<AggregateException>(() => t.Wait());
             Assert.IsType<IOException>(ex.InnerException);
         }
+
         [Fact]
         public void ReadAsync_PriorReadInProgress_ThrowsInvalidOperationException()
         {
             Stream stream = MakeResponseStream();
 
+            TestControl.IsReadExAvailable = false;
             TestControl.WinHttpReadData.Pause();
             Task t1 = stream.ReadAsync(new byte[1], 0, 1);
 
@@ -299,6 +307,7 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
         {
             Stream stream = MakeResponseStream();
 
+            TestControl.IsReadExAvailable = false;
             TestControl.WinHttpQueryDataAvailable.ErrorWithApiCall = true;
             Assert.Throws<IOException>(() => { stream.Read(new byte[1], 0, 1); });
         }
@@ -308,6 +317,7 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
         {
             Stream stream = MakeResponseStream();
 
+            TestControl.IsReadExAvailable = false;
             TestControl.WinHttpQueryDataAvailable.ErrorOnCompletion = true;
             Assert.Throws<IOException>(() => { stream.Read(new byte[1], 0, 1); });
         }
@@ -317,6 +327,7 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
         {
             Stream stream = MakeResponseStream();
 
+            TestControl.IsReadExAvailable = false;
             TestControl.WinHttpReadData.ErrorWithApiCall = true;
             Assert.Throws<IOException>(() => { stream.Read(new byte[1], 0, 1); });
         }
@@ -326,6 +337,7 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
         {
             Stream stream = MakeResponseStream();
 
+            TestControl.IsReadExAvailable = false;
             TestControl.WinHttpReadData.ErrorOnCompletion = true;
             Assert.Throws<IOException>(() => { stream.Read(new byte[1], 0, 1); });
         }
@@ -355,6 +367,7 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
         {
             Stream stream = MakeResponseStream();
 
+            TestControl.IsReadExAvailable = true;
             TestControl.WinHttpReadDataEx.Pause();
             Task t1 = stream.ReadAsync(new byte[1], 0, 1);
 
@@ -369,6 +382,7 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
         {
             Stream stream = MakeResponseStream();
 
+            TestControl.IsReadExAvailable = true;
             TestControl.WinHttpReadDataEx.ErrorWithApiCall = true;
             Assert.Throws<IOException>(() => { stream.Read(new byte[1], 0, 1); });
         }
@@ -378,6 +392,7 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
         {
             Stream stream = MakeResponseStream();
 
+            TestControl.IsReadExAvailable = true;
             TestControl.WinHttpReadDataEx.ErrorOnCompletion = true;
             Assert.Throws<IOException>(() => { stream.Read(new byte[1], 0, 1); });
         }

@@ -184,20 +184,41 @@ internal static partial class Interop
                 var fakeHandle = (FakeSafeWinHttpHandle)requestHandle;
                 bool aborted = !fakeHandle.DelayOperation(TestControl.WinHttpReceiveResponse.Delay);
 
-                if (aborted || TestControl.WinHttpReadDataEx.ErrorOnCompletion)
+                if (TestControl.IsReadExAvailable)
                 {
-                    Interop.WinHttp.WINHTTP_ASYNC_RESULT asyncResult;
-                    asyncResult.dwResult = new IntPtr((int)Interop.WinHttp.API_RECEIVE_RESPONSE);
-                    asyncResult.dwError = aborted ? Interop.WinHttp.ERROR_WINHTTP_OPERATION_CANCELLED :
-                        Interop.WinHttp.ERROR_WINHTTP_CONNECTION_ERROR;
+                    if (aborted || TestControl.WinHttpReadDataEx.ErrorOnCompletion)
+                    {
+                        Interop.WinHttp.WINHTTP_ASYNC_RESULT asyncResult;
+                        asyncResult.dwResult = new IntPtr((int)Interop.WinHttp.API_RECEIVE_RESPONSE);
+                        asyncResult.dwError = aborted ? Interop.WinHttp.ERROR_WINHTTP_OPERATION_CANCELLED :
+                            Interop.WinHttp.ERROR_WINHTTP_CONNECTION_ERROR;
 
-                    TestControl.WinHttpReadDataEx.Wait();
-                    fakeHandle.InvokeCallback(Interop.WinHttp.WINHTTP_CALLBACK_STATUS_REQUEST_ERROR, asyncResult);
+                        TestControl.WinHttpReadDataEx.Wait();
+                        fakeHandle.InvokeCallback(Interop.WinHttp.WINHTTP_CALLBACK_STATUS_REQUEST_ERROR, asyncResult);
+                    }
+                    else
+                    {
+                        TestControl.WinHttpReceiveResponse.Wait();
+                        fakeHandle.InvokeCallback(Interop.WinHttp.WINHTTP_CALLBACK_STATUS_HEADERS_AVAILABLE, IntPtr.Zero, 0);
+                    }
                 }
                 else
                 {
-                    TestControl.WinHttpReceiveResponse.Wait();
-                    fakeHandle.InvokeCallback(Interop.WinHttp.WINHTTP_CALLBACK_STATUS_HEADERS_AVAILABLE, IntPtr.Zero, 0);
+                    if (aborted || TestControl.WinHttpReadData.ErrorOnCompletion)
+                    {
+                        Interop.WinHttp.WINHTTP_ASYNC_RESULT asyncResult;
+                        asyncResult.dwResult = new IntPtr((int)Interop.WinHttp.API_RECEIVE_RESPONSE);
+                        asyncResult.dwError = aborted ? Interop.WinHttp.ERROR_WINHTTP_OPERATION_CANCELLED :
+                            Interop.WinHttp.ERROR_WINHTTP_CONNECTION_ERROR;
+
+                        TestControl.WinHttpReadData.Wait();
+                        fakeHandle.InvokeCallback(Interop.WinHttp.WINHTTP_CALLBACK_STATUS_REQUEST_ERROR, asyncResult);
+                    }
+                    else
+                    {
+                        TestControl.WinHttpReceiveResponse.Wait();
+                        fakeHandle.InvokeCallback(Interop.WinHttp.WINHTTP_CALLBACK_STATUS_HEADERS_AVAILABLE, IntPtr.Zero, 0);
+                    }
                 }
             });
 
