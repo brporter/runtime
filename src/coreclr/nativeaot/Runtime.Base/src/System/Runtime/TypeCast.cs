@@ -35,7 +35,7 @@ namespace System.Runtime
         private const int MaximumCacheSize = 4096; // 4096 * sizeof(CastCacheEntry) is 98304 bytes on 64bit. We will rarely need this much though.
 #endif // DEBUG
 
-        private static CastCache s_castCache = new CastCache(InitialCacheSize, MaximumCacheSize);
+        private static readonly CastCache s_castCache = new CastCache(InitialCacheSize, MaximumCacheSize);
 
         [Flags]
         internal enum AssignmentVariation
@@ -148,12 +148,17 @@ namespace System.Runtime
                         interfaceMap++;
                         interfaceCount--;
                     } while (interfaceCount > 0);
+                }
 
-                extra:
-                    if (mt->IsIDynamicInterfaceCastable)
-                    {
-                        goto slowPath;
-                    }
+            extra:
+                // NOTE: this check is outside the `if (interfaceCount != 0)` check because
+                // we could have devirtualized and inlined all uses of IDynamicInterfaceCastable
+                // (and optimized the interface MethodTable away) and still have a type that
+                // is legitimately marked IDynamicInterfaceCastable (without having the MethodTable
+                // of IDynamicInterfaceCastable in the interface list).
+                if (mt->IsIDynamicInterfaceCastable)
+                {
+                    goto slowPath;
                 }
 
                 obj = null;
