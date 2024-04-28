@@ -1831,8 +1831,7 @@ void CodeGen::genGenerateMachineCode()
 
         if (compiler->fgHaveProfileWeights())
         {
-            printf("; with %s: edge weights are %s, and fgCalledCount is " FMT_WT "\n",
-                   compiler->compGetPgoSourceName(), compiler->fgHaveValidEdgeWeights ? "valid" : "invalid",
+            printf("; with %s: fgCalledCount is " FMT_WT "\n", compiler->compGetPgoSourceName(),
                    compiler->fgCalledCount);
         }
 
@@ -2803,7 +2802,6 @@ XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 */
 
-#if !defined(TARGET_LOONGARCH64) && !defined(TARGET_RISCV64)
 struct RegNode;
 
 struct RegNodeEdge
@@ -3346,8 +3344,6 @@ void CodeGen::genHomeRegisterParams(regNumber initReg, bool* initRegStillZeroed)
         }
     }
 }
-
-#endif
 
 // -----------------------------------------------------------------------------
 // genGetParameterHomingTempRegisterCandidates: Get the registers that are
@@ -4123,15 +4119,69 @@ void CodeGen::genEnregisterOSRArgsAndLocals()
     }
 }
 
+#if defined(SWIFT_SUPPORT) || defined(TARGET_RISCV64)
+//-----------------------------------------------------------------------------
+// genHomeSwiftStructParameters: Move the incoming segment to the local stack frame.
+//
+// Arguments:
+//    lclNum - Number of local variable to home
+//    seg - Stack segment of the local variable to home
+//    initReg - Scratch register to use if needed
+//    initRegStillZeroed - Set to false if the scratch register was needed
+//
+void CodeGen::genHomeStackSegment(unsigned                 lclNum,
+                                  const ABIPassingSegment& seg,
+                                  regNumber                initReg,
+                                  bool*                    initRegStillZeroed)
+{
+    var_types loadType = TYP_UNDEF;
+    switch (seg.Size)
+    {
+        case 1:
+            loadType = TYP_UBYTE;
+            break;
+        case 2:
+            loadType = TYP_USHORT;
+            break;
+        case 3:
+        case 4:
+            loadType = TYP_INT;
+            break;
+        case 5:
+        case 6:
+        case 7:
+        case 8:
+            loadType = TYP_LONG;
+            break;
+        default:
+            assert(!"Unexpected segment size for struct parameter not passed implicitly by ref");
+            return;
+    }
+    emitAttr size = emitTypeSize(loadType);
+
+    int loadOffset =
+        -(isFramePointerUsed() ? genCallerSPtoFPdelta() : genCallerSPtoInitialSPdelta()) + (int)seg.GetStackOffset();
+#ifdef TARGET_XARCH
+    GetEmitter()->emitIns_R_AR(ins_Load(loadType), size, initReg, genFramePointerReg(), loadOffset);
+#else
+    genInstrWithConstant(ins_Load(loadType), size, initReg, genFramePointerReg(), loadOffset, initReg);
+#endif
+    GetEmitter()->emitIns_S_R(ins_Store(loadType), size, initReg, lclNum, seg.Offset);
+
+    if (initRegStillZeroed)
+        *initRegStillZeroed = false;
+}
+#endif // defined(SWIFT_SUPPORT) || defined(TARGET_RISCV64)
+
 #ifdef SWIFT_SUPPORT
 
 //-----------------------------------------------------------------------------
 // genHomeSwiftStructParameters:
-//  Reassemble Swift struct parameters if necessary.
+//    Reassemble Swift struct parameters if necessary.
 //
-// Parameters:
-//   handleStack - If true, reassemble the segments that were passed on the stack.
-//                 If false, reassemble the segments that were passed in registers.
+// Arguments:
+//    handleStack - If true, reassemble the segments that were passed on the stack.
+//                  If false, reassemble the segments that were passed in registers.
 //
 void CodeGen::genHomeSwiftStructParameters(bool handleStack)
 {
@@ -4177,55 +4227,54 @@ void CodeGen::genHomeSwiftStructParameters(bool handleStack)
             }
             else
             {
-                var_types loadType = TYP_UNDEF;
-                switch (seg.Size)
-                {
-                    case 1:
-                        loadType = TYP_UBYTE;
-                        break;
-                    case 2:
-                        loadType = TYP_USHORT;
-                        break;
-                    case 4:
-                        loadType = TYP_INT;
-                        break;
-                    case 8:
-                        loadType = TYP_LONG;
-                        break;
-                    default:
-                        assert(!"Unexpected segment size for struct parameter not passed implicitly by ref");
-                        continue;
-                }
-
-                int offset;
-                if (isFramePointerUsed())
-                {
-                    offset = -genCallerSPtoFPdelta();
-                }
-                else
-                {
-                    offset = -genCallerSPtoInitialSPdelta();
-                }
-
-                offset += (int)seg.GetStackOffset();
-
-                // Move the incoming segment to the local stack frame. We can
-                // use REG_SCRATCH as a temporary register here as we ensured
-                // that during LSRA build.
-#ifdef TARGET_XARCH
-                GetEmitter()->emitIns_R_AR(ins_Load(loadType), emitTypeSize(loadType), REG_SCRATCH,
-                                           genFramePointerReg(), offset);
-#else
-                genInstrWithConstant(ins_Load(loadType), emitTypeSize(loadType), REG_SCRATCH, genFramePointerReg(),
-                                     offset, REG_SCRATCH);
-#endif
-
-                GetEmitter()->emitIns_S_R(ins_Store(loadType), emitTypeSize(loadType), REG_SCRATCH, lclNum, seg.Offset);
+                // We can use REG_SCRATCH as a temporary register here as we ensured that during LSRA build.
+                genHomeStackSegment(lclNum, seg, REG_SCRATCH, nullptr);
             }
         }
     }
 }
 #endif
+
+//-----------------------------------------------------------------------------
+// genHomeStackPartOfSplitParameter: Home the tail (stack) portion of a split parameter next to where the head
+// (register) portion is homed.
+//
+// Arguments:
+//    initReg - scratch register to use if needed
+//    initRegStillZeroed - set to false if scratch register was needed
+//
+// Notes:
+//    No-op on platforms where argument registers are already homed to form a contiguous space with incoming stack.
+//
+void CodeGen::genHomeStackPartOfSplitParameter(regNumber initReg, bool* initRegStillZeroed)
+{
+#ifdef TARGET_RISCV64
+    unsigned lclNum = 0;
+    for (; lclNum < compiler->info.compArgsCount; lclNum++)
+    {
+        LclVarDsc* var = compiler->lvaGetDesc(lclNum);
+        if (!var->lvIsSplit || !var->lvOnFrame)
+            continue;
+
+        JITDUMP("Homing stack part of split parameter V%02u\n", lclNum);
+
+        assert(varTypeIsStruct(var));
+        assert(!compiler->lvaIsImplicitByRefLocal(lclNum));
+        const ABIPassingInformation& abiInfo = compiler->lvaGetParameterABIInfo(lclNum);
+        assert(abiInfo.NumSegments == 2);
+        assert(abiInfo.Segments[0].GetRegister() == REG_ARG_LAST);
+        const ABIPassingSegment& seg = abiInfo.Segments[1];
+
+        genHomeStackSegment(lclNum, seg, initReg, initRegStillZeroed);
+
+        for (lclNum += 1; lclNum < compiler->info.compArgsCount; lclNum++)
+        {
+            assert(!compiler->lvaGetDesc(lclNum)->lvIsSplit); // There should be only one split parameter
+        }
+        break;
+    }
+#endif
+}
 
 /*-----------------------------------------------------------------------------
  *
@@ -4745,20 +4794,13 @@ void CodeGen::genFinalizeFrame()
 #endif // defined(TARGET_XARCH)
 
 #if defined(TARGET_LOONGARCH64) || defined(TARGET_RISCV64)
-    if (isFramePointerUsed())
-    {
-        // For a FP based frame we have to push/pop the FP register
-        //
-        maskCalleeRegsPushed |= RBM_FPBASE;
+    // This assert check that we are not using REG_FP
+    assert(!regSet.rsRegsModified(RBM_FPBASE));
 
-        // This assert check that we are not using REG_FP
-        // as both the frame pointer and as a codegen register
-        //
-        assert(!regSet.rsRegsModified(RBM_FPBASE));
-    }
+    assert(isFramePointerUsed());
+    // we always push FP/RA.  See genPushCalleeSavedRegisters
+    maskCalleeRegsPushed |= (RBM_FPBASE | RBM_RA);
 
-    // we always push RA.  See genPushCalleeSavedRegisters
-    maskCalleeRegsPushed |= RBM_RA;
 #endif // TARGET_LOONGARCH64 || TARGET_RISCV64
 
     compiler->compCalleeRegsPushed = genCountBits(maskCalleeRegsPushed);
@@ -5550,6 +5592,8 @@ void CodeGen::genFnProlog()
     else
     {
         compiler->lvaUpdateArgsWithInitialReg();
+
+        genHomeStackPartOfSplitParameter(initReg, &initRegZeroed);
 
         if ((intRegState.rsCalleeRegArgMaskLiveIn | floatRegState.rsCalleeRegArgMaskLiveIn) != RBM_NONE)
         {
@@ -6869,8 +6913,8 @@ GenTreeIntCon CodeGen::intForm(var_types type, ssize_t value)
 //
 void CodeGen::genLongReturn(GenTree* treeNode)
 {
-    assert(treeNode->OperGet() == GT_RETURN || treeNode->OperGet() == GT_RETFILT);
-    assert(treeNode->TypeGet() == TYP_LONG);
+    assert(treeNode->OperIs(GT_RETURN, GT_RETFILT));
+    assert(treeNode->TypeIs(TYP_LONG));
     GenTree*  op1        = treeNode->gtGetOp1();
     var_types targetType = treeNode->TypeGet();
 
@@ -6894,16 +6938,16 @@ void CodeGen::genLongReturn(GenTree* treeNode)
 //            In case of LONG return on 32-bit, delegates to the genLongReturn method.
 //
 // Arguments:
-//    treeNode - The GT_RETURN or GT_RETFILT tree node.
+//    treeNode - The GT_RETURN/GT_RETFILT/GT_SWIFT_ERROR_RET tree node.
 //
 // Return Value:
 //    None
 //
 void CodeGen::genReturn(GenTree* treeNode)
 {
-    assert(treeNode->OperIs(GT_RETURN, GT_RETFILT));
+    assert(treeNode->OperIs(GT_RETURN, GT_RETFILT, GT_SWIFT_ERROR_RET));
 
-    GenTree*  op1        = treeNode->gtGetOp1();
+    GenTree*  op1        = treeNode->AsOp()->GetReturnValue();
     var_types targetType = treeNode->TypeGet();
 
     // A void GT_RETFILT is the end of a finally. For non-void filter returns we need to load the result in the return
@@ -7005,7 +7049,7 @@ void CodeGen::genReturn(GenTree* treeNode)
     //
     // There should be a single GT_RETURN while generating profiler ELT callbacks.
     //
-    if (treeNode->OperIs(GT_RETURN) && compiler->compIsProfilerHookNeeded())
+    if (treeNode->OperIs(GT_RETURN, GT_SWIFT_ERROR_RET) && compiler->compIsProfilerHookNeeded())
     {
         // !! NOTE !!
         // Since we are invalidating the assumption that we would slip into the epilog
@@ -7075,18 +7119,28 @@ void CodeGen::genReturn(GenTree* treeNode)
 
     genStackPointerCheck(doStackPointerCheck, compiler->lvaReturnSpCheck);
 #endif // defined(DEBUG) && defined(TARGET_XARCH)
+}
 
 #ifdef SWIFT_SUPPORT
-    // If this method has a SwiftError* out parameter, load the SwiftError pseudolocal value into the error register.
-    // TODO-CQ: Introduce GenTree node that models returning a normal and Swift error value.
-    if (compiler->lvaSwiftErrorArg != BAD_VAR_NUM)
-    {
-        assert(compiler->info.compCallConv == CorInfoCallConvExtension::Swift);
-        assert(compiler->lvaSwiftErrorLocal != BAD_VAR_NUM);
-        GetEmitter()->emitIns_R_S(ins_Load(TYP_I_IMPL), EA_PTRSIZE, REG_SWIFT_ERROR, compiler->lvaSwiftErrorLocal, 0);
-    }
-#endif // SWIFT_SUPPORT
+//------------------------------------------------------------------------
+// genSwiftErrorReturn: Generates code for returning the normal return value,
+//                      and loading the SwiftError pseudolocal value in the error register.
+//
+// Arguments:
+//    treeNode - The GT_SWIFT_ERROR_RET tree node.
+//
+// Return Value:
+//    None
+//
+void CodeGen::genSwiftErrorReturn(GenTree* treeNode)
+{
+    assert(treeNode->OperIs(GT_SWIFT_ERROR_RET));
+    GenTree*        swiftErrorNode = treeNode->gtGetOp1();
+    const regNumber errorSrcReg    = genConsumeReg(swiftErrorNode);
+    inst_Mov(swiftErrorNode->TypeGet(), REG_SWIFT_ERROR, errorSrcReg, true, EA_PTRSIZE);
+    genReturn(treeNode);
 }
+#endif // SWIFT_SUPPORT
 
 //------------------------------------------------------------------------
 // isStructReturn: Returns whether the 'treeNode' is returning a struct.
@@ -7095,15 +7149,15 @@ void CodeGen::genReturn(GenTree* treeNode)
 //    treeNode - The tree node to evaluate whether is a struct return.
 //
 // Return Value:
-//    Returns true if the 'treeNode" is a GT_RETURN node of type struct.
+//    Returns true if the 'treeNode' is a GT_RETURN/GT_SWIFT_ERROR_RET node of type struct.
 //    Otherwise returns false.
 //
 bool CodeGen::isStructReturn(GenTree* treeNode)
 {
-    // This method could be called for 'treeNode' of GT_RET_FILT or GT_RETURN.
+    // This method could be called for 'treeNode' of GT_RET_FILT/GT_RETURN/GT_SWIFT_ERROR_RET.
     // For the GT_RET_FILT, the return is always a bool or a void, for the end of a finally block.
-    noway_assert(treeNode->OperGet() == GT_RETURN || treeNode->OperGet() == GT_RETFILT);
-    if (treeNode->OperGet() != GT_RETURN)
+    noway_assert(treeNode->OperIs(GT_RETURN, GT_RETFILT, GT_SWIFT_ERROR_RET));
+    if (!treeNode->OperIs(GT_RETURN, GT_SWIFT_ERROR_RET))
     {
         return false;
     }
@@ -7130,12 +7184,12 @@ bool CodeGen::isStructReturn(GenTree* treeNode)
 //
 void CodeGen::genStructReturn(GenTree* treeNode)
 {
-    assert(treeNode->OperGet() == GT_RETURN);
+    assert(treeNode->OperIs(GT_RETURN, GT_SWIFT_ERROR_RET));
 
-    genConsumeRegs(treeNode->gtGetOp1());
-
-    GenTree* op1       = treeNode->gtGetOp1();
+    GenTree* op1       = treeNode->AsOp()->GetReturnValue();
     GenTree* actualOp1 = op1->gtSkipReloadOrCopy();
+
+    genConsumeRegs(op1);
 
     ReturnTypeDesc retTypeDesc = compiler->compRetTypeDesc;
     const unsigned regCount    = retTypeDesc.GetReturnRegCount();
