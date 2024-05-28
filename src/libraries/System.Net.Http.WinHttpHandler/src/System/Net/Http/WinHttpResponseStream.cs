@@ -147,7 +147,7 @@ namespace System.Net.Http
                             }
                         }
 
-                        int bytesAvailable = await _state.LifecycleAwaitable;
+                        int bytesAvailable = await _state.LifecycleAwaitable.WaitAsync(cancellationToken).ConfigureAwait(false);
                         if (bytesAvailable == 0)
                         {
                             ReadResponseTrailers();
@@ -166,7 +166,7 @@ namespace System.Net.Http
                         }
                     }
 
-                    int bytesRead = await _state.LifecycleAwaitable;
+                    int bytesRead = await _state.LifecycleAwaitable.WaitAsync(cancellationToken).ConfigureAwait(false);
 
                     if (bytesRead == 0)
                     {
@@ -246,6 +246,7 @@ namespace System.Net.Http
 
             _state.PinReceiveBuffer(buffer);
             var ctr = token.Register(s => ((WinHttpResponseStream)s!).CancelPendingResponseStreamReadOperation(), this);
+            _state.LifecycleAwaitable.Reset();
             _state.AsyncReadInProgress = true;
             try
             {
@@ -285,7 +286,7 @@ namespace System.Net.Http
                         }
                     }
 
-                    int bytesAvailable = await _state.LifecycleAwaitable;
+                    int bytesAvailable = await _state.LifecycleAwaitable.WaitAsync(token).ConfigureAwait(false);
 
                     lock (_state.Lock)
                     {
@@ -301,7 +302,7 @@ namespace System.Net.Http
                     }
                 }
 
-                int bytesRead = await _state.LifecycleAwaitable;
+                int bytesRead = await _state.LifecycleAwaitable.WaitAsync(token).ConfigureAwait(false);
 
                 if (bytesRead == 0)
                 {

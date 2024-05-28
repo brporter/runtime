@@ -136,14 +136,14 @@ namespace System.Net.Http
             Debug.Assert(state != null, "OnRequestSendRequestComplete: state is null");
             Debug.Assert(state.LifecycleAwaitable != null, "OnRequestSendRequestComplete: LifecycleAwaitable is null");
 
-            state.LifecycleAwaitable.SetResult(1);
+            state.LifecycleAwaitable.SignalWaiter(1);
         }
 
         private static void OnRequestDataAvailable(WinHttpRequestState state, int bytesAvailable)
         {
             Debug.Assert(state != null, "OnRequestDataAvailable: state is null");
 
-            state.LifecycleAwaitable.SetResult(bytesAvailable);
+            state.LifecycleAwaitable.SignalWaiter(bytesAvailable);
         }
 
         private static void OnRequestReadComplete(WinHttpRequestState state, uint bytesRead)
@@ -156,7 +156,7 @@ namespace System.Net.Http
                 && state.ExpectedBytesToRead.HasValue
                 && state.CurrentBytesRead < state.ExpectedBytesToRead.Value)
             {
-                state.LifecycleAwaitable.SetException(new IOException(SR.Format(
+                state.LifecycleAwaitable.SignalWaiter(new IOException(SR.Format(
                     SR.net_http_io_read_incomplete,
                     state.ExpectedBytesToRead.Value,
                     state.CurrentBytesRead)));
@@ -164,7 +164,7 @@ namespace System.Net.Http
             else
             {
                 state.CurrentBytesRead += (long)bytesRead;
-                state.LifecycleAwaitable.SetResult((int)bytesRead);
+                state.LifecycleAwaitable.SignalWaiter((int)bytesRead);
             }
         }
 
@@ -182,7 +182,7 @@ namespace System.Net.Http
             Debug.Assert(state != null, "OnRequestReceiveResponseHeadersComplete: state is null");
             Debug.Assert(state.LifecycleAwaitable != null, "LifecycleAwaitable is null");
 
-            state.LifecycleAwaitable.SetResult(1);
+            state.LifecycleAwaitable.SignalWaiter(1);
         }
 
         private static void OnRequestRedirect(WinHttpRequestState state, Uri redirectUri)
@@ -329,14 +329,14 @@ namespace System.Net.Http
             switch (unchecked((uint)asyncResult.dwResult.ToInt32()))
             {
                 case Interop.WinHttp.API_SEND_REQUEST:
-                    state.LifecycleAwaitable.SetException(innerException);
+                    state.LifecycleAwaitable.SignalWaiter(innerException);
                     break;
 
                 case Interop.WinHttp.API_RECEIVE_RESPONSE:
                     if (asyncResult.dwError == Interop.WinHttp.ERROR_WINHTTP_RESEND_REQUEST)
                     {
                         state.RetryRequest = true;
-                        state.LifecycleAwaitable.SetResult(0);
+                        state.LifecycleAwaitable.SignalWaiter(0);
                     }
                     else if (asyncResult.dwError == Interop.WinHttp.ERROR_WINHTTP_CLIENT_AUTH_CERT_NEEDED)
                     {
@@ -348,15 +348,15 @@ namespace System.Net.Http
                         Debug.Assert(state.RequestHandle != null, "OnRequestError: state.RequestHandle is null");
                         WinHttpHandler.SetNoClientCertificate(state.RequestHandle);
                         state.RetryRequest = true;
-                        state.LifecycleAwaitable.SetResult(0);
+                        state.LifecycleAwaitable.SignalWaiter(0);
                     }
                     else if (asyncResult.dwError == Interop.WinHttp.ERROR_WINHTTP_OPERATION_CANCELLED)
                     {
-                        state.LifecycleAwaitable.SetCanceled(state.CancellationToken);
+                        state.LifecycleAwaitable.SignalWaiter(state.CancellationToken);
                     }
                     else
                     {
-                        state.LifecycleAwaitable.SetException(innerException);
+                        state.LifecycleAwaitable.SignalWaiter(innerException);
                     }
                     break;
 
@@ -364,11 +364,11 @@ namespace System.Net.Http
                     if (asyncResult.dwError == Interop.WinHttp.ERROR_WINHTTP_OPERATION_CANCELLED)
                     {
                         if (NetEventSource.Log.IsEnabled()) NetEventSource.Error(state, "QUERY_DATA_AVAILABLE - ERROR_WINHTTP_OPERATION_CANCELLED");
-                        state.LifecycleAwaitable.SetCanceled();
+                        state.LifecycleAwaitable.SignalWaiter(state.CancellationToken);
                     }
                     else
                     {
-                        state.LifecycleAwaitable.SetException(
+                        state.LifecycleAwaitable.SignalWaiter(
                             new IOException(SR.net_http_io_read, innerException));
                     }
                     break;
@@ -377,11 +377,11 @@ namespace System.Net.Http
                     if (asyncResult.dwError == Interop.WinHttp.ERROR_WINHTTP_OPERATION_CANCELLED)
                     {
                         if (NetEventSource.Log.IsEnabled()) NetEventSource.Error(state, "API_READ_DATA - ERROR_WINHTTP_OPERATION_CANCELLED");
-                        state.LifecycleAwaitable.SetCanceled();
+                        state.LifecycleAwaitable.SignalWaiter(state.CancellationToken);
                     }
                     else
                     {
-                        state.LifecycleAwaitable.SetException(new IOException(SR.net_http_io_read, innerException));
+                        state.LifecycleAwaitable.SignalWaiter(new IOException(SR.net_http_io_read, innerException));
                     }
                     break;
 

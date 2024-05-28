@@ -5,15 +5,100 @@ using System;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Net.Security;
+using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
-
+using System.Threading.Tasks.Sources;
 using SafeWinHttpHandle = Interop.WinHttp.SafeWinHttpHandle;
 
 namespace System.Net.Http
 {
+    internal sealed class ResettableValueTaskSource<T>
+        : IValueTaskSource<T>, IValueTaskSource
+    {
+        private ManualResetValueTaskSourceCore<T> _waitSource;
+        private CancellationTokenRegistration _waitSourceCancellation;
+        private int _hasWaiter;
+
+        public T GetResult(short token)
+        {
+            Debug.Assert(_hasWaiter == 0);
+            _waitSourceCancellation.Dispose();
+            _waitSourceCancellation = default;
+
+            return _waitSource.GetResult(token);
+        }
+
+        void IValueTaskSource.GetResult(short token)
+            => GetResult(token);
+
+        public ValueTaskSourceStatus GetStatus(short token) => _waitSource.GetStatus(token);
+
+        public void OnCompleted(Action<object?> continuation, object? state, short token, ValueTaskSourceOnCompletedFlags flags)
+            => _waitSource.OnCompleted(continuation, state, token, flags);
+
+        public void SignalWaiter(T result)
+        {
+            if (Interlocked.Exchange(ref _hasWaiter, 0) == 1)
+            {
+                _waitSource.SetResult(result);
+            }
+        }
+
+        public void SignalWaiter(Exception e)
+        {
+
+            if (Interlocked.Exchange(ref _hasWaiter, 0) == 1)
+            {
+                _waitSource.SetException(e);
+            }
+        }
+
+        public void SignalWaiter(CancellationToken token)
+            => CancelWaiter(token);
+
+        private void CancelWaiter(CancellationToken cancellationToken)
+        {
+            Debug.Assert(cancellationToken.IsCancellationRequested);
+
+            if (Interlocked.Exchange(ref _hasWaiter, 0) == 1)
+            {
+#if NETFRAMEWORK
+                _waitSource.SetException(new OperationCanceledException(cancellationToken));
+#else
+                _waitSource.SetException(ExceptionDispatchInfo.SetCurrentStackTrace(new OperationCanceledException(cancellationToken)));
+#endif
+            }
+        }
+
+        public void Reset()
+        {
+            if (_hasWaiter != 0)
+            {
+                throw new InvalidOperationException("Concurrent use is not supported");
+            }
+
+            _waitSource.Reset();
+            Volatile.Write(ref _hasWaiter, 1);
+        }
+
+        public ValueTask<T> WaitAsync(CancellationToken cancellationToken)
+        {
+            _waitSource.RunContinuationsAsynchronously = true;
+
+#if NETFRAMEWORK
+            var callBack = (object? s) => ((ResettableValueTaskSource<T>)s!).CancelWaiter(cancellationToken);
+            _waitSourceCancellation = cancellationToken.Register(callBack, this);
+#else
+            _waitSourceCancellation = cancellationToken.UnsafeRegister(static (s, token) => ((ResettableValueTaskSource<T>)s!).CancelWaiter(token), this);
+#endif
+
+            return new ValueTask<T>(this, _waitSource.Version);
+        }
+    }
+
     internal sealed class WinHttpRequestState : IDisposable
     {
 #if DEBUG
@@ -148,8 +233,10 @@ namespace System.Net.Http
 
         public bool RetryRequest { get; set; }
 
-        public RendezvousAwaitable<int> LifecycleAwaitable { get; set; } = new RendezvousAwaitable<int>();
+        public ResettableValueTaskSource<int> LifecycleAwaitable { get; set; } = new();
+
         public TaskCompletionSource<bool>? TcsInternalWriteDataToRequestStream { get; set; }
+
         public bool AsyncReadInProgress { get; set; }
 
         // WinHttpResponseStream state.

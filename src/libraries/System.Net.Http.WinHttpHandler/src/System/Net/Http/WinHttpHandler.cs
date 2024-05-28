@@ -939,9 +939,9 @@ namespace System.Net.Http
                     {
                         _authHelper.PreAuthenticateRequest(state, proxyAuthScheme);
 
-                        await InternalSendRequestAsync(state);
+                        await InternalSendRequestAsync(state).ConfigureAwait(false);
 
-                        RendezvousAwaitable<int> receivedResponseTask;
+                        ValueTask<int> receivedResponseTask;
 
                         if (chunkedModeForSend == WinHttpChunkMode.Automatic)
                         {
@@ -970,7 +970,7 @@ namespace System.Net.Http
                             receivedResponseTask = InternalReceiveResponseHeadersAsync(state);
                         }
 
-                        bool receivedResponse = await receivedResponseTask != 0;
+                        bool receivedResponse = await receivedResponseTask.ConfigureAwait(false) != 0;
                         if (receivedResponse)
                         {
                             // If we're manually handling cookies, we need to add them to the container after
@@ -1667,7 +1667,7 @@ namespace System.Net.Http
             }
         }
 
-        private RendezvousAwaitable<int> InternalSendRequestAsync(WinHttpRequestState state)
+        private ValueTask<int> InternalSendRequestAsync(WinHttpRequestState state)
         {
             lock (state.Lock)
             {
@@ -1693,7 +1693,7 @@ namespace System.Net.Http
                 }
             }
 
-            return state.LifecycleAwaitable;
+            return state.LifecycleAwaitable.WaitAsync(CancellationToken.None);
         }
 
         private static async Task InternalSendRequestBodyAsync(WinHttpRequestState state, WinHttpChunkMode chunkedModeForSend)
@@ -1708,7 +1708,7 @@ namespace System.Net.Http
             }
         }
 
-        private RendezvousAwaitable<int> InternalReceiveResponseHeadersAsync(WinHttpRequestState state)
+        private ValueTask<int> InternalReceiveResponseHeadersAsync(WinHttpRequestState state)
         {
             lock (state.Lock)
             {
@@ -1720,7 +1720,7 @@ namespace System.Net.Http
                 }
             }
 
-            return state.LifecycleAwaitable;
+            return state.LifecycleAwaitable.WaitAsync(CancellationToken.None);
         }
     }
 }
