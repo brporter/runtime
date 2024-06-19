@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -627,6 +628,29 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
         }
 
         [Fact]
+        public async Task SendAsync_ReadFromStreamingServer_PartialDataRead_MemoryBuffer()
+        {
+            var handler = new WinHttpHandler();
+            using (var client = new HttpClient(handler))
+            {
+                TestServer.SetResponse(DecompressionMethods.None, TestServer.ExpectedResponseBody);
+                TestServer.DataAvailablePercentage = 0.25;
+
+                int bytesRead;
+                using var buffer = MemoryPool<byte>.Shared.Rent(TestServer.ExpectedResponseBody.Length);
+                var request = new HttpRequestMessage(HttpMethod.Get, TestServer.FakeServerEndpoint);
+                using (var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead))
+                {
+                    Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+                    var stream = await response.Content.ReadAsStreamAsync();
+                    bytesRead = await stream.ReadAsync(buffer.Memory);
+                    _output.WriteLine("bytesRead={0}", bytesRead);
+                }
+                Assert.True(bytesRead < buffer.Memory.Length, "bytesRead should be less than buffer.Length");
+            }
+        }
+
+        [Fact]
         public async Task SendAsync_ReadAllDataFromStreamingServer_AllDataRead()
         {
             var handler = new WinHttpHandler();
@@ -651,6 +675,34 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
                     } while (bytesRead != 0);
                 }
                 Assert.Equal(buffer.Length, totalBytesRead);
+            }
+        }
+
+        [Fact]
+        public async Task SendAsync_ReadAllDataFromStreamingServer_AllDataRead_MemoryBuffer()
+        {
+            var handler = new WinHttpHandler();
+            using (var client = new HttpClient(handler))
+            {
+                TestServer.SetResponse(DecompressionMethods.None, TestServer.ExpectedResponseBody);
+                TestServer.DataAvailablePercentage = 0.25;
+
+                int totalBytesRead = 0;
+                int bytesRead;
+                using var buffer = MemoryPool<byte>.Shared.Rent(TestServer.ExpectedResponseBody.Length);
+                var request = new HttpRequestMessage(HttpMethod.Get, TestServer.FakeServerEndpoint);
+                using (var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead))
+                {
+                    Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+                    var stream = await response.Content.ReadAsStreamAsync();
+                    do
+                    {
+                        bytesRead = await stream.ReadAsync(buffer.Memory);
+                        _output.WriteLine("bytesRead={0}", bytesRead);
+                        totalBytesRead += bytesRead;
+                    } while (bytesRead != 0);
+                }
+                Assert.Equal(TestServer.ExpectedResponseBody.Length, totalBytesRead);
             }
         }
 

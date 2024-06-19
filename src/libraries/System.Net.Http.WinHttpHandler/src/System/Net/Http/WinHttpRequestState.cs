@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Buffers;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Net.Security;
@@ -263,6 +264,20 @@ namespace System.Net.Http
 
                 _cachedReceivePinnedBuffer = GCHandle.Alloc(buffer, GCHandleType.Pinned);
             }
+        }
+
+        private MemoryHandle _cachedReceiveBufferMemoryHandle;
+
+        public unsafe nint PinReceiveBuffer(Memory<byte> buffer)
+        {
+            if (_cachedReceiveBufferMemoryHandle.Pointer != null)
+            {
+                _cachedReceiveBufferMemoryHandle.Dispose();
+            }
+
+            _cachedReceiveBufferMemoryHandle = buffer.Pin();
+
+            return (nint)_cachedReceiveBufferMemoryHandle.Pointer;
         }
 
         #region IDisposable Members

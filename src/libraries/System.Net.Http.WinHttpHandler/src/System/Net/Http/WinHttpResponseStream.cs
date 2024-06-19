@@ -218,9 +218,18 @@ namespace System.Net.Http
                 throw new ArgumentException(SR.net_http_buffer_insufficient_length, nameof(buffer));
             }
 
-            if (token.IsCancellationRequested)
+            return ReadAsync(buffer.AsMemory(offset, count), token).AsTask();
+        }
+
+#if NETFRAMEWORK
+        public ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+#else
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+#endif
+        {
+            if (cancellationToken.IsCancellationRequested)
             {
-                return Task.FromCanceled<int>(token);
+                return new ValueTask<int>(Task.FromCanceled<int>(cancellationToken));
             }
 
             CheckDisposed();
@@ -230,7 +239,7 @@ namespace System.Net.Http
                 throw new InvalidOperationException(SR.net_http_no_concurrent_io_allowed);
             }
 
-            return ReadAsyncCore(buffer, offset, count, token);
+            return ReadAsyncCore(buffer, cancellationToken);
         }
 
         public override IAsyncResult BeginRead(byte[] buffer, int offset, int count, AsyncCallback? callback, object? state) =>
@@ -239,14 +248,14 @@ namespace System.Net.Http
         public override int EndRead(IAsyncResult asyncResult) =>
             TaskToAsyncResult.End<int>(asyncResult);
 
-        private async Task<int> ReadAsyncCore(byte[] buffer, int offset, int count, CancellationToken token)
+        private async ValueTask<int> ReadAsyncCore(Memory<byte> buffer, CancellationToken token)
         {
-            if (count == 0)
+            if (buffer.IsEmpty)
             {
                 return 0;
             }
 
-            _state.PinReceiveBuffer(buffer);
+            var ptr = _state.PinReceiveBuffer(buffer);
             var ctr = token.Register(s => ((WinHttpResponseStream)s!).CancelPendingResponseStreamReadOperation(), this);
             _state.AsyncReadInProgress = true;
 
@@ -256,7 +265,7 @@ namespace System.Net.Http
                 {
                     lock (_state.Lock)
                     {
-                        var result = Interop.WinHttp.WinHttpReadDataEx(_requestHandle, Marshal.UnsafeAddrOfPinnedArrayElement(buffer, offset), (uint)count, IntPtr.Zero, 0, 0, IntPtr.Zero);
+                        var result = Interop.WinHttp.WinHttpReadDataEx(_requestHandle, ptr, (uint)buffer.Length, IntPtr.Zero, 0, 0, IntPtr.Zero);
 
                         if (Interop.WinHttp.ERROR_IO_PENDING != result
                             && Interop.WinHttp.ERROR_SUCCESS != result)
@@ -283,8 +292,8 @@ namespace System.Net.Http
                         Debug.Assert(!_requestHandle.IsInvalid);
                         if (!Interop.WinHttp.WinHttpReadData(
                             _requestHandle,
-                            Marshal.UnsafeAddrOfPinnedArrayElement(buffer, offset),
-                            (uint)Math.Min(bytesAvailable, count),
+                            ptr,
+                            (uint)Math.Min(bytesAvailable, buffer.Length),
                             IntPtr.Zero))
                         {
                             throw new IOException(SR.net_http_io_read, WinHttpException.CreateExceptionUsingLastError(nameof(Interop.WinHttp.WinHttpReadData)));
