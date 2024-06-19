@@ -148,6 +148,8 @@ namespace System.Net.Http
                         }
 
                         int bytesAvailable = await _state.LifecycleAwaitable.WaitAsync(cancellationToken).ConfigureAwait(false);
+                        _state.LifecycleAwaitable.Reset();
+
                         if (bytesAvailable == 0)
                         {
                             ReadResponseTrailers();
@@ -167,7 +169,9 @@ namespace System.Net.Http
                     }
 
                     int bytesRead = await _state.LifecycleAwaitable.WaitAsync(cancellationToken).ConfigureAwait(false);
+                    _state.LifecycleAwaitable.Reset();
 
+                    // TODO: bytesREad is zero but buffer got data. This means SetResult() is being set wrong.
                     if (bytesRead == 0)
                     {
                         ReadResponseTrailers();
@@ -287,6 +291,7 @@ namespace System.Net.Http
                     }
 
                     int bytesAvailable = await _state.LifecycleAwaitable.WaitAsync(token).ConfigureAwait(false);
+                    _state.LifecycleAwaitable.Reset();
 
                     lock (_state.Lock)
                     {
@@ -303,6 +308,7 @@ namespace System.Net.Http
                 }
 
                 int bytesRead = await _state.LifecycleAwaitable.WaitAsync(token).ConfigureAwait(false);
+                _state.LifecycleAwaitable.Reset();
 
                 if (bytesRead == 0)
                 {

@@ -940,6 +940,7 @@ namespace System.Net.Http
                         _authHelper.PreAuthenticateRequest(state, proxyAuthScheme);
 
                         await InternalSendRequestAsync(state).ConfigureAwait(false);
+                        state.LifecycleAwaitable.Reset();
 
                         ValueTask<int> receivedResponseTask;
 
@@ -971,6 +972,8 @@ namespace System.Net.Http
                         }
 
                         bool receivedResponse = await receivedResponseTask.ConfigureAwait(false) != 0;
+                        state.LifecycleAwaitable.Reset();
+
                         if (receivedResponse)
                         {
                             // If we're manually handling cookies, we need to add them to the container after

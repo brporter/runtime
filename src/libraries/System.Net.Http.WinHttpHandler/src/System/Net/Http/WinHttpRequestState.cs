@@ -22,6 +22,9 @@ namespace System.Net.Http
         private CancellationTokenRegistration _waitSourceCancellation;
         private int _hasWaiter;
 
+        public ResettableValueTaskSource()
+            => Reset();
+
         public T GetResult(short token)
         {
             Debug.Assert(_hasWaiter == 0);
