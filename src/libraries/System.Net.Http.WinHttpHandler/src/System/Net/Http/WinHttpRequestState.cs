@@ -31,7 +31,11 @@ namespace System.Net.Http
             _waitSourceCancellation.Dispose();
             _waitSourceCancellation = default;
 
-            return _waitSource.GetResult(token);
+            var result = _waitSource.GetResult(token);
+
+            Reset();
+
+            return result;
         }
 
         void IValueTaskSource.GetResult(short token)
@@ -76,7 +80,7 @@ namespace System.Net.Http
             }
         }
 
-        public void Reset()
+        private void Reset()
         {
             if (_hasWaiter != 0)
             {

@@ -148,7 +148,6 @@ namespace System.Net.Http
                         }
 
                         int bytesAvailable = await _state.LifecycleAwaitable.WaitAsync(cancellationToken).ConfigureAwait(false);
-                        _state.LifecycleAwaitable.Reset();
 
                         if (bytesAvailable == 0)
                         {
@@ -169,7 +168,6 @@ namespace System.Net.Http
                     }
 
                     int bytesRead = await _state.LifecycleAwaitable.WaitAsync(cancellationToken).ConfigureAwait(false);
-                    _state.LifecycleAwaitable.Reset();
 
                     // TODO: bytesREad is zero but buffer got data. This means SetResult() is being set wrong.
                     if (bytesRead == 0)
@@ -250,22 +248,10 @@ namespace System.Net.Http
 
             _state.PinReceiveBuffer(buffer);
             var ctr = token.Register(s => ((WinHttpResponseStream)s!).CancelPendingResponseStreamReadOperation(), this);
-            _state.LifecycleAwaitable.Reset();
             _state.AsyncReadInProgress = true;
+
             try
             {
-                lock (_state.Lock)
-                {
-                    Debug.Assert(!_requestHandle.IsInvalid);
-                    var result = Interop.WinHttp.WinHttpReadDataEx(_requestHandle, Marshal.UnsafeAddrOfPinnedArrayElement(buffer, offset), (uint)count, IntPtr.Zero, 0, 0, IntPtr.Zero);
-
-                    if (Interop.WinHttp.ERROR_IO_PENDING != result
-                        && Interop.WinHttp.ERROR_SUCCESS != result)
-                    {
-                        throw new IOException(SR.net_http_io_read, WinHttpException.CreateExceptionUsingError(result, nameof(Interop.WinHttp.WinHttpReadDataEx)));
-                    }
-                }
-
                 if (Interop.WinHttp.IsWinHttpReadDataExAvailable)
                 {
                     lock (_state.Lock)
@@ -291,7 +277,6 @@ namespace System.Net.Http
                     }
 
                     int bytesAvailable = await _state.LifecycleAwaitable.WaitAsync(token).ConfigureAwait(false);
-                    _state.LifecycleAwaitable.Reset();
 
                     lock (_state.Lock)
                     {
@@ -308,7 +293,6 @@ namespace System.Net.Http
                 }
 
                 int bytesRead = await _state.LifecycleAwaitable.WaitAsync(token).ConfigureAwait(false);
-                _state.LifecycleAwaitable.Reset();
 
                 if (bytesRead == 0)
                 {
