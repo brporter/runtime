@@ -856,6 +856,23 @@ namespace System.Net.Http
                             }
                         }
 
+                        uint optionProxyDisableServiceCalls = 1; // TRUE
+
+                        if (!Interop.WinHttp.WinHttpSetOption(
+                            sessionHandle,
+                            Interop.WinHttp.WINHTTP_OPTION_PROXY_DISABLE_SERVICE_CALLS,
+                            ref optionProxyDisableServiceCalls,
+                            (uint)sizeof(uint)))
+                        {
+                            // This option is not available on downlevel Windows versions. While it improves
+                            // performance, we can ignore the error that the option is not available.
+                            int lastError = Marshal.GetLastWin32Error();
+                            if (lastError != Interop.WinHttp.ERROR_WINHTTP_INVALID_OPTION)
+                            {
+                                throw WinHttpException.CreateExceptionUsingError(lastError, nameof(Interop.WinHttp.WinHttpSetOption));
+                            }
+                        }
+
                         SetSessionHandleOptions(sessionHandle);
                         _sessionHandle = sessionHandle;
                     }

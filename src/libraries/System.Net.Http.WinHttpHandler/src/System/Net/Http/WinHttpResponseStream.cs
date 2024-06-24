@@ -112,74 +112,34 @@ namespace System.Net.Http
 
         private async Task CopyToAsyncCore(Stream destination, byte[] buffer, CancellationToken cancellationToken)
         {
-            _state.PinReceiveBuffer(buffer);
-            CancellationTokenRegistration ctr = cancellationToken.Register(s => ((WinHttpResponseStream)s!).CancelPendingResponseStreamReadOperation(), this);
-            _state.AsyncReadInProgress = true;
+            Memory<byte> memory = new Memory<byte>(buffer);
+
             try
             {
                 // Loop until there's no more data to be read
                 while (true)
                 {
-                    // Read the available data
-                    cancellationToken.ThrowIfCancellationRequested();
+                    var readTask = ReadAsyncCore(memory, cancellationToken);
 
-                    if (Interop.WinHttp.IsWinHttpReadDataExAvailable)
+                    var bytesRead = 0;
+
+                    if (readTask.IsCompletedSuccessfully)
                     {
-                        lock (_state.Lock)
-                        {
-                            var result = Interop.WinHttp.WinHttpReadDataEx(_requestHandle, Marshal.UnsafeAddrOfPinnedArrayElement(buffer, 0), (uint)buffer.Length, IntPtr.Zero, 0, 0, IntPtr.Zero);
-
-                            if (Interop.WinHttp.ERROR_IO_PENDING != result
-                                && Interop.WinHttp.ERROR_SUCCESS != result)
-                            {
-                                throw new IOException(SR.net_http_io_read, WinHttpException.CreateExceptionUsingError(result, nameof(Interop.WinHttp.WinHttpReadDataEx)));
-                            }
-                        }
+                        bytesRead = readTask.Result;
                     }
                     else
                     {
-                        // Query for data available
-                        lock (_state.Lock)
-                        {
-                            if (!Interop.WinHttp.WinHttpQueryDataAvailable(_requestHandle, IntPtr.Zero))
-                            {
-                                throw new IOException(SR.net_http_io_read, WinHttpException.CreateExceptionUsingLastError(nameof(Interop.WinHttp.WinHttpQueryDataAvailable)));
-                            }
-                        }
-
-                        int bytesAvailable = await _state.LifecycleAwaitable.WaitAsync(cancellationToken).ConfigureAwait(false);
-
-                        if (bytesAvailable == 0)
-                        {
-                            ReadResponseTrailers();
-                            break;
-                        }
-                        Debug.Assert(bytesAvailable > 0);
-
-                        // Read the available data
-                        cancellationToken.ThrowIfCancellationRequested();
-                        lock (_state.Lock)
-                        {
-                            if (!Interop.WinHttp.WinHttpReadData(_requestHandle, Marshal.UnsafeAddrOfPinnedArrayElement(buffer, 0), (uint)Math.Min(bytesAvailable, buffer.Length), IntPtr.Zero))
-                            {
-                                throw new IOException(SR.net_http_io_read, WinHttpException.CreateExceptionUsingLastError(nameof(Interop.WinHttp.WinHttpReadData)));
-                            }
-                        }
+                        bytesRead = await readTask.ConfigureAwait(false);
                     }
 
-                    int bytesRead = await _state.LifecycleAwaitable.WaitAsync(cancellationToken).ConfigureAwait(false);
-
-                    // TODO: bytesREad is zero but buffer got data. This means SetResult() is being set wrong.
                     if (bytesRead == 0)
                     {
-                        ReadResponseTrailers();
                         break;
                     }
-                    Debug.Assert(bytesRead > 0);
 
                     // Write that data out to the output stream
 #if NETSTANDARD2_1 || NETCOREAPP
-                    await destination.WriteAsync(buffer.AsMemory(0, bytesRead), cancellationToken).ConfigureAwait(false);
+                    await destination.WriteAsync(memory, cancellationToken).ConfigureAwait(false);
 #else
                     await destination.WriteAsync(buffer, 0, bytesRead, cancellationToken).ConfigureAwait(false);
 #endif
@@ -187,13 +147,8 @@ namespace System.Net.Http
             }
             finally
             {
-                _state.AsyncReadInProgress = false;
-                ctr.Dispose();
                 ArrayPool<byte>.Shared.Return(buffer);
             }
-
-            // Leaving buffer pinned as it is in ReadAsync.  It'll get unpinned when another read
-            // request is made with a different buffer or when the state is cleared.
         }
 
         public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken token)
@@ -285,7 +240,17 @@ namespace System.Net.Http
                         }
                     }
 
-                    int bytesAvailable = await _state.LifecycleAwaitable.WaitAsync(token).ConfigureAwait(false);
+                    int bytesAvailable = 0;
+                    var bytesAvailableTask = _state.LifecycleAwaitable.WaitAsync(token);
+
+                    if (bytesAvailableTask.IsCompletedSuccessfully)
+                    {
+                        bytesAvailable = bytesAvailableTask.Result;
+                    }
+                    else
+                    {
+                        bytesAvailable = await bytesAvailableTask.ConfigureAwait(false);
+                    }
 
                     lock (_state.Lock)
                     {
@@ -301,7 +266,17 @@ namespace System.Net.Http
                     }
                 }
 
-                int bytesRead = await _state.LifecycleAwaitable.WaitAsync(token).ConfigureAwait(false);
+                int bytesRead = 0;
+                var bytesReadTask = _state.LifecycleAwaitable.WaitAsync(token);
+
+                if (bytesReadTask.IsCompletedSuccessfully)
+                {
+                    bytesRead = bytesReadTask.Result;
+                }
+                else
+                {
+                    bytesRead = await bytesReadTask.ConfigureAwait(false);
+                }
 
                 if (bytesRead == 0)
                 {
