@@ -139,7 +139,7 @@ namespace System.Net.Http
 
                     // Write that data out to the output stream
 #if NETSTANDARD2_1 || NETCOREAPP
-                    await destination.WriteAsync(memory, cancellationToken).ConfigureAwait(false);
+                    await destination.WriteAsync(memory.Slice(0, bytesRead), cancellationToken).ConfigureAwait(false);
 #else
                     await destination.WriteAsync(buffer, 0, bytesRead, cancellationToken).ConfigureAwait(false);
 #endif
