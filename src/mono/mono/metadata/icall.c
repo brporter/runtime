@@ -957,6 +957,9 @@ ves_icall_System_Runtime_RuntimeImports_Memmove (guint8 *destination, guint8 *so
 void
 ves_icall_System_Buffer_BulkMoveWithWriteBarrier (guint8 *destination, guint8 *source, size_t len, MonoType *type)
 {
+	if (len == 0 || destination == source)
+		return;
+
 	if (MONO_TYPE_IS_REFERENCE (type))
 		mono_gc_wbarrier_arrayref_copy_internal (destination, source, (guint)len);
 	else
@@ -1210,8 +1213,8 @@ ves_icall_System_Runtime_CompilerServices_RuntimeHelpers_PrepareMethod (MonoMeth
 	// FIXME: Implement
 }
 
-void
-ves_icall_System_Runtime_CompilerServices_RuntimeHelpers_InternalBox (MonoQCallTypeHandle type_handle, char* data, MonoObjectHandleOnStack obj, MonoError *error)
+MonoObjectHandle
+ves_icall_System_Runtime_CompilerServices_RuntimeHelpers_InternalBox (MonoQCallTypeHandle type_handle, char* data, MonoError *error)
 {
 	MonoType *type = type_handle.type;
 	MonoClass *klass = mono_class_from_mono_type_internal (type);
@@ -1219,15 +1222,9 @@ ves_icall_System_Runtime_CompilerServices_RuntimeHelpers_InternalBox (MonoQCallT
 	g_assert (m_class_is_valuetype (klass));
 
 	mono_class_init_checked (klass, error);
-	goto_if_nok (error, error_ret);
+	return_val_if_nok (error, NULL_HANDLE);
 
-	MonoObject* raw_obj = mono_value_box_checked (klass, data, error);
-	goto_if_nok (error, error_ret);
-
-	HANDLE_ON_STACK_SET(obj, raw_obj);
-	return;
-error_ret:
-	HANDLE_ON_STACK_SET (obj, NULL);
+	return mono_value_box_handle (klass, data, error);
 }
 
 gint32
@@ -1254,6 +1251,11 @@ ves_icall_System_ValueType_InternalGetHashCode (MonoObjectHandle this_obj, MonoA
 	gpointer iter;
 
 	klass = mono_handle_class (this_obj);
+
+	if (m_class_is_inlinearray (klass)) {
+		mono_error_set_not_supported (error, "Calling built-in GetHashCode() on type marked as InlineArray is invalid.");
+		return FALSE;
+	}
 
 	if (mono_class_num_fields (klass) == 0)
 		return result;
@@ -1329,6 +1331,11 @@ ves_icall_System_ValueType_Equals (MonoObjectHandle this_obj, MonoObjectHandle t
 		return FALSE;
 
 	klass = mono_handle_class (this_obj);
+
+	if (m_class_is_inlinearray (klass)) {
+		mono_error_set_not_supported (error, "Calling built-in Equals() on type marked as InlineArray is invalid.");
+		return FALSE;
+	}
 
 	if (m_class_is_enumtype (klass) && mono_class_enum_basetype_internal (klass) && mono_class_enum_basetype_internal (klass)->type == MONO_TYPE_I4)
 		return *(gint32*)mono_handle_get_data_unsafe (this_obj) == *(gint32*)mono_handle_get_data_unsafe (that);

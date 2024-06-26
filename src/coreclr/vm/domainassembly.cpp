@@ -23,10 +23,6 @@
 #include "dllimportcallback.h"
 #include "peimagelayout.inl"
 
-#ifdef FEATURE_PERFMAP
-#include "perfmap.h"
-#endif // FEATURE_PERFMAP
-
 #ifndef DACCESS_COMPILE
 DomainAssembly::DomainAssembly(PEAssembly* pPEAssembly, LoaderAllocator* pLoaderAllocator) :
     m_pAssembly(NULL),
@@ -554,15 +550,6 @@ void DomainAssembly::FinishLoad()
 
     // Now the DAC can find this module by enumerating assemblies in a domain.
     DACNotify::DoModuleLoadNotification(m_pModule);
-
-    // Set a bit to indicate that the module has been loaded in some domain, and therefore
-    // typeloads can involve types from this module. (Used for candidate instantiations.)
-    GetModule()->SetIsReadyForTypeLoad();
-
-#ifdef FEATURE_PERFMAP
-    // Notify the perfmap of the IL image load.
-    PerfMap::LogImageLoad(m_pPEAssembly);
-#endif
 }
 
 void DomainAssembly::Activate()
