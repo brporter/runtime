@@ -609,17 +609,7 @@ namespace System.Net.Http
             state.DefaultProxyCredentials = _defaultProxyCredentials;
             state.PreAuthenticate = _preAuthenticate;
 
-            Task.Factory.StartNew(s =>
-                {
-                    var whrs = (WinHttpRequestState)s!;
-                    _ = whrs.Handler!.StartRequestAsync(whrs);
-                },
-                state,
-                CancellationToken.None,
-                TaskCreationOptions.DenyChildAttach,
-                TaskScheduler.Default);
-
-            return tcs.Task;
+            return state.Handler.StartRequestAsync(state);
         }
 
         private static WinHttpChunkMode GetChunkedModeForSend(HttpRequestMessage requestMessage)
@@ -881,7 +871,7 @@ namespace System.Net.Http
             }
         }
 
-        private async Task StartRequestAsync(WinHttpRequestState state)
+        private Task<HttpResponseMessage> StartRequestAsync(WinHttpRequestState state)
         {
             Debug.Assert(state.RequestMessage != null);
             Debug.Assert(state.RequestMessage.RequestUri != null);
@@ -890,16 +880,14 @@ namespace System.Net.Http
 
             if (state.CancellationToken.IsCancellationRequested)
             {
-                state.Tcs.TrySetCanceled(state.CancellationToken);
                 state.ClearSendRequestState();
-                return;
+                return Task.FromCanceled<HttpResponseMessage>(state.CancellationToken);
             }
 
             if (state.RequestMessage.Version != HttpVersion.Version10 && state.RequestMessage.Version != HttpVersion.Version11
                 && state.RequestMessage.Version != HttpVersion20 && state.RequestMessage.Version != HttpVersion30)
             {
-                state.Tcs.TrySetException(new NotSupportedException(SR.net_http_unsupported_version));
-                return;
+                return Task.FromException<HttpResponseMessage>(new NotSupportedException(SR.net_http_unsupported_version));
             }
 
             Task? sendRequestBodyTask = null;
@@ -964,7 +952,12 @@ namespace System.Net.Http
                     {
                         _authHelper.PreAuthenticateRequest(state, proxyAuthScheme);
 
-                        await InternalSendRequestAsync(state).ConfigureAwait(false);
+                        var sendRequestTask = InternalSendRequestAsync(state);
+
+                        if (!sendRequestTask.IsCompleted)
+                        {
+                            _ = sendRequestTask.ConfigureAwait(false).GetAwaiter().GetResult();
+                        }
 
                         ValueTask<int> receivedResponseTask;
 
