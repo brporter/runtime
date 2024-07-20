@@ -593,11 +593,8 @@ namespace System.Net.Http
 
             SetOperationStarted();
 
-            TaskCompletionSource<HttpResponseMessage> tcs = new TaskCompletionSource<HttpResponseMessage>();
-
             // Create state object and save current values of handler settings.
             var state = new WinHttpRequestState();
-            state.Tcs = tcs;
             state.CancellationToken = cancellationToken;
             state.RequestMessage = request;
             state.Handler = this;
@@ -609,7 +606,7 @@ namespace System.Net.Http
             state.DefaultProxyCredentials = _defaultProxyCredentials;
             state.PreAuthenticate = _preAuthenticate;
 
-            return state.Handler.StartRequestAsync(state);
+            return StartRequestAsync(state);
         }
 
         private static WinHttpChunkMode GetChunkedModeForSend(HttpRequestMessage requestMessage)
@@ -871,23 +868,25 @@ namespace System.Net.Http
             }
         }
 
-        private Task<HttpResponseMessage> StartRequestAsync(WinHttpRequestState state)
+        private async Task<HttpResponseMessage> StartRequestAsync(WinHttpRequestState state)
         {
+            HttpResponseMessage? returnValue = null;
+
             Debug.Assert(state.RequestMessage != null);
             Debug.Assert(state.RequestMessage.RequestUri != null);
             Debug.Assert(state.Handler != null);
-            Debug.Assert(state.Tcs != null);
 
             if (state.CancellationToken.IsCancellationRequested)
             {
                 state.ClearSendRequestState();
-                return Task.FromCanceled<HttpResponseMessage>(state.CancellationToken);
+                state.CancellationToken.ThrowIfCancellationRequested();
+                return new HttpResponseMessage();
             }
 
             if (state.RequestMessage.Version != HttpVersion.Version10 && state.RequestMessage.Version != HttpVersion.Version11
                 && state.RequestMessage.Version != HttpVersion20 && state.RequestMessage.Version != HttpVersion30)
             {
-                return Task.FromException<HttpResponseMessage>(new NotSupportedException(SR.net_http_unsupported_version));
+                throw new NotSupportedException(SR.net_http_unsupported_version);
             }
 
             Task? sendRequestBodyTask = null;
@@ -952,14 +951,9 @@ namespace System.Net.Http
                     {
                         _authHelper.PreAuthenticateRequest(state, proxyAuthScheme);
 
-                        var sendRequestTask = InternalSendRequestAsync(state);
+                        await InternalSendRequestAsync(state).ConfigureAwait(false);
 
-                        if (!sendRequestTask.IsCompleted)
-                        {
-                            _ = sendRequestTask.ConfigureAwait(false).GetAwaiter().GetResult();
-                        }
-
-                        ValueTask<int> receivedResponseTask;
+                        ValueTask receivedResponseTask;
 
                         if (chunkedModeForSend == WinHttpChunkMode.Automatic)
                         {
@@ -988,22 +982,21 @@ namespace System.Net.Http
                             receivedResponseTask = InternalReceiveResponseHeadersAsync(state);
                         }
 
-                        bool receivedResponse = await receivedResponseTask.ConfigureAwait(false) != 0;
+                        //TODO: This is hanging, the underlying task never seems to get flagged as finished despite SetResult in the callback
+                        await receivedResponseTask.ConfigureAwait(false);
 
-                        if (receivedResponse)
+                        // If we're manually handling cookies, we need to add them to the container after
+                        // each response has been received.
+                        if (state.Handler.CookieUsePolicy == CookieUsePolicy.UseSpecifiedCookieContainer)
                         {
-                            // If we're manually handling cookies, we need to add them to the container after
-                            // each response has been received.
-                            if (state.Handler.CookieUsePolicy == CookieUsePolicy.UseSpecifiedCookieContainer)
-                            {
-                                WinHttpCookieContainerAdapter.AddResponseCookiesToContainer(state);
-                            }
-
-                            _authHelper.CheckResponseForAuthentication(
-                                state,
-                                ref proxyAuthScheme,
-                                ref serverAuthScheme);
+                            WinHttpCookieContainerAdapter.AddResponseCookiesToContainer(state);
                         }
+
+                        _authHelper.CheckResponseForAuthentication(
+                            state,
+                            ref proxyAuthScheme,
+                            ref serverAuthScheme);
+
                     } while (state.RetryRequest);
                 }
 
@@ -1018,18 +1011,19 @@ namespace System.Net.Http
                 uint optionData = (uint)(int)_receiveDataTimeout.TotalMilliseconds;
                 SetWinHttpOption(state.RequestHandle, Interop.WinHttp.WINHTTP_OPTION_RECEIVE_TIMEOUT, ref optionData);
 
-                HttpResponseMessage responseMessage =
+                returnValue =
                     WinHttpResponseParser.CreateResponseMessage(state, _doManualDecompressionCheck ? _automaticDecompression : DecompressionMethods.None);
-                state.Tcs.TrySetResult(responseMessage);
 
                 // HttpStatusCode cast is needed for 308 Moved Permenantly, which we support but is not included in NetStandard status codes.
                 if (NetEventSource.Log.IsEnabled() &&
-                    ((responseMessage.StatusCode >= HttpStatusCode.MultipleChoices && responseMessage.StatusCode <= HttpStatusCode.SeeOther) ||
-                     (responseMessage.StatusCode >= HttpStatusCode.RedirectKeepVerb && responseMessage.StatusCode <= (HttpStatusCode)308)) &&
-                    state.RequestMessage.RequestUri.Scheme == Uri.UriSchemeHttps && responseMessage.Headers.Location?.Scheme == Uri.UriSchemeHttp)
+                    ((returnValue.StatusCode >= HttpStatusCode.MultipleChoices && returnValue.StatusCode <= HttpStatusCode.SeeOther) ||
+                     (returnValue.StatusCode >= HttpStatusCode.RedirectKeepVerb && returnValue.StatusCode <= (HttpStatusCode)308)) &&
+                    state.RequestMessage.RequestUri.Scheme == Uri.UriSchemeHttps && returnValue.Headers.Location?.Scheme == Uri.UriSchemeHttp)
                 {
-                    NetEventSource.Error(this, $"Insecure https to http redirect from {state.RequestMessage.RequestUri} to {responseMessage.Headers.Location} blocked.");
+                    NetEventSource.Error(this, $"Insecure https to http redirect from {state.RequestMessage.RequestUri} to {returnValue.Headers.Location} blocked.");
                 }
+
+                return returnValue;
             }
             catch (Exception ex)
             {
@@ -1052,6 +1046,10 @@ namespace System.Net.Http
                     state.ClearSendRequestState();
                 }
             }
+
+            Debug.Assert(false);
+
+            return new HttpResponseMessage();
         }
 
         private void OpenRequestHandle(WinHttpRequestState state, SafeWinHttpHandle connectHandle, string? httpVersion, out WinHttpChunkMode chunkedModeForSend, out SafeWinHttpHandle requestHandle)
@@ -1686,7 +1684,7 @@ namespace System.Net.Http
             }
         }
 
-        private ValueTask<int> InternalSendRequestAsync(WinHttpRequestState state)
+        private ValueTask InternalSendRequestAsync(WinHttpRequestState state)
         {
             lock (state.Lock)
             {
@@ -1712,7 +1710,7 @@ namespace System.Net.Http
                 }
             }
 
-            return state.LifecycleAwaitable.WaitAsync(CancellationToken.None);
+            return new ValueTask(state, state.Version);
         }
 
         private static async Task InternalSendRequestBodyAsync(WinHttpRequestState state, WinHttpChunkMode chunkedModeForSend)
@@ -1727,7 +1725,7 @@ namespace System.Net.Http
             }
         }
 
-        private ValueTask<int> InternalReceiveResponseHeadersAsync(WinHttpRequestState state)
+        private ValueTask InternalReceiveResponseHeadersAsync(WinHttpRequestState state)
         {
             lock (state.Lock)
             {
@@ -1739,7 +1737,7 @@ namespace System.Net.Http
                 }
             }
 
-            return state.LifecycleAwaitable.WaitAsync(CancellationToken.None);
+            return new ValueTask(state, state.Version);
         }
     }
 }

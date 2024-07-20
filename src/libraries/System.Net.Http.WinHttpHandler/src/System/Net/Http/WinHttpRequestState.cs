@@ -107,7 +107,8 @@ namespace System.Net.Http
         }
     }
 
-    internal sealed class WinHttpRequestState : IDisposable
+    internal sealed class WinHttpRequestState
+        : IDisposable, IValueTaskSource
     {
 #if DEBUG
         private static int s_dbg_allocated;
@@ -118,6 +119,8 @@ namespace System.Net.Http
 
         private IntPtr s_dbg_requestHandle;
 #endif
+
+        private ManualResetValueTaskSourceCore<bool> _mrvtsc; // cannot be readonly
 
         // A GCHandle for this operation object.
         // This is owned by the callback and will be deallocated when the sessionHandle has been closed.
@@ -130,7 +133,10 @@ namespace System.Net.Http
 #if DEBUG
             Interlocked.Increment(ref s_dbg_allocated);
 #endif
+            _mrvtsc = new ManualResetValueTaskSourceCore<bool> { RunContinuationsAsynchronously = true };
         }
+
+        public short Version => _mrvtsc.Version;
 
         public void Pin()
         {
@@ -169,8 +175,7 @@ namespace System.Net.Http
             // Since WinHttpRequestState has a self-referenced strong GCHandle, we
             // need to clear out object references to break cycles and prevent leaks.
             Tcs = null;
-            TcsInternalWriteDataToRequestStream = null;
-            CancellationToken = default(CancellationToken);
+            TcsInternalWriteDataToRequestStream = null; CancellationToken = default(CancellationToken);
             RequestMessage = null;
             Handler = null;
             ServerCertificateValidationCallback = null;
@@ -240,7 +245,6 @@ namespace System.Net.Http
         public HttpStatusCode LastStatusCode { get; set; }
 
         public bool RetryRequest { get; set; }
-
         public ResettableValueTaskSource<int> LifecycleAwaitable { get; set; } = new();
 
         public TaskCompletionSource<bool>? TcsInternalWriteDataToRequestStream { get; set; }
@@ -342,5 +346,62 @@ namespace System.Net.Http
             Dispose(true);
         }
         #endregion
+
+        // TODO: localize
+        private static void ThrowIncorrectTokenException() => throw new InvalidOperationException("Incorrect Token");
+
+        private int _waiterCount = 1;
+
+        private void ReleaseForAsyncCompletion()
+        {
+            if (_waiterCount != 0)
+            {
+                throw new InvalidOperationException("Concurrent use is not supported");
+            }
+
+            _mrvtsc.Reset();
+
+            Volatile.Write(ref _waiterCount, 1);
+
+            //BoolResult = false;
+            //IntResult = 0;
+            //LongResult = 0;
+        }
+
+        public void SetResult(bool result)
+        {
+            Debug.Assert(_waiterCount == 1);
+
+            if (Interlocked.Exchange(ref _waiterCount, 0) == 1)
+            {
+                _mrvtsc.SetResult(result);
+            }
+            else
+            {
+                throw new InvalidOperationException();
+            }
+        }
+
+        void IValueTaskSource.GetResult(short token)
+        {
+            if (token != _mrvtsc.Version)
+            {
+                ThrowIncorrectTokenException();
+            }
+
+            ReleaseForAsyncCompletion();
+        }
+
+        ValueTaskSourceStatus IValueTaskSource.GetStatus(short token)
+        {
+            var status = _mrvtsc.GetStatus(token);
+
+            Debug.WriteLine($"Status: {status} for token: {token}");
+
+            return status;
+        }
+
+        void IValueTaskSource.OnCompleted(Action<object?> continuation, object? state, short token, ValueTaskSourceOnCompletedFlags flags)
+            => _mrvtsc.OnCompleted(continuation, state, token, flags);
     }
 }

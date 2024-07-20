@@ -136,7 +136,7 @@ namespace System.Net.Http
             Debug.Assert(state != null, "OnRequestSendRequestComplete: state is null");
             Debug.Assert(state.LifecycleAwaitable != null, "OnRequestSendRequestComplete: LifecycleAwaitable is null");
 
-            state.LifecycleAwaitable.SignalWaiter(1);
+            state.SetResult(true);
         }
 
         private static void OnRequestDataAvailable(WinHttpRequestState state, int bytesAvailable)
@@ -182,7 +182,7 @@ namespace System.Net.Http
             Debug.Assert(state != null, "OnRequestReceiveResponseHeadersComplete: state is null");
             Debug.Assert(state.LifecycleAwaitable != null, "LifecycleAwaitable is null");
 
-            state.LifecycleAwaitable.SignalWaiter(1);
+            state.SetResult(true);
         }
 
         private static void OnRequestRedirect(WinHttpRequestState state, Uri redirectUri)
@@ -357,6 +357,7 @@ namespace System.Net.Http
                     else
                     {
                         state.LifecycleAwaitable.SignalWaiter(innerException);
+                        // state.ValueTaskSource.SetException(innerException);
                     }
                     break;
 

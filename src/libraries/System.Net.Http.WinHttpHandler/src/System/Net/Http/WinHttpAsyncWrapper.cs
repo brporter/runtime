@@ -15,9 +15,9 @@ using SafeWinHttpHandle = Interop.WinHttp.SafeWinHttpHandle;
 namespace System.Net.Http
 {
     /// <summary>
-    /// TODO: summary documentation
+    /// TODO: This was a hack, playing with ideas. Do not check this in.
     /// </summary>
-    internal class WinHttpAsyncWrapper
+    internal sealed class WinHttpAsyncWrapper
         : IValueTaskSource<bool>, IValueTaskSource<int>, IValueTaskSource<long>
     {
         // TODO: localize
@@ -563,6 +563,7 @@ namespace System.Net.Http
 
             return IntResult;
         }
+
         long IValueTaskSource<long>.GetResult(short token)
         {
             if (token != _mrvtsc.Version)
