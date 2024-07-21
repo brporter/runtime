@@ -58,6 +58,8 @@
              Link="Common\System\Threading\Tasks\RendezvousAwaitable.cs" />
     <Compile Include="..\..\src\System\Net\Http\NoWriteNoSeekStreamContent.cs"
              Link="ProductionCode\NoWriteNoSeekStreamContent.cs" />
+    <Compile Include="..\..\src\System\Net\Http\ResettableValueTaskSource.cs"
+             Link="ProductionCode\ResettableValueTaskSource.cs" />
     <Compile Include="..\..\src\System\Net\Http\WinHttpAuthHelper.cs"
              Link="ProductionCode\WinHttpAuthHelper.cs" />
     <Compile Include="..\..\src\System\Net\Http\WinHttpChannelBinding.cs"

@@ -241,7 +241,7 @@ namespace System.Net.Http
                     }
 
                     int bytesAvailable = 0;
-                    var bytesAvailableTask = _state.LifecycleAwaitable.WaitAsync(token);
+                    var bytesAvailableTask = _state.ReadTaskSource.ToResultValueTask(token);
 
                     if (bytesAvailableTask.IsCompletedSuccessfully)
                     {
@@ -267,7 +267,7 @@ namespace System.Net.Http
                 }
 
                 int bytesRead = 0;
-                var bytesReadTask = _state.LifecycleAwaitable.WaitAsync(token);
+                var bytesReadTask = _state.ReadTaskSource.ToResultValueTask(token);
 
                 if (bytesReadTask.IsCompletedSuccessfully)
                 {

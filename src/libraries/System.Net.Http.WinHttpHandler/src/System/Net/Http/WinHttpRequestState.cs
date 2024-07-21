@@ -16,99 +16,8 @@ using SafeWinHttpHandle = Interop.WinHttp.SafeWinHttpHandle;
 
 namespace System.Net.Http
 {
-    internal sealed class ResettableValueTaskSource<T>
-        : IValueTaskSource<T>, IValueTaskSource
-    {
-        private ManualResetValueTaskSourceCore<T> _waitSource;
-        private CancellationTokenRegistration _waitSourceCancellation;
-        private int _hasWaiter;
-
-        public ResettableValueTaskSource()
-            => Reset();
-
-        public T GetResult(short token)
-        {
-            Debug.Assert(_hasWaiter == 0);
-            _waitSourceCancellation.Dispose();
-            _waitSourceCancellation = default;
-
-            var result = _waitSource.GetResult(token);
-
-            Reset();
-
-            return result;
-        }
-
-        void IValueTaskSource.GetResult(short token)
-            => GetResult(token);
-
-        public ValueTaskSourceStatus GetStatus(short token) => _waitSource.GetStatus(token);
-
-        public void OnCompleted(Action<object?> continuation, object? state, short token, ValueTaskSourceOnCompletedFlags flags)
-            => _waitSource.OnCompleted(continuation, state, token, flags);
-
-        public void SignalWaiter(T result)
-        {
-            if (Interlocked.Exchange(ref _hasWaiter, 0) == 1)
-            {
-                _waitSource.SetResult(result);
-            }
-        }
-
-        public void SignalWaiter(Exception e)
-        {
-
-            if (Interlocked.Exchange(ref _hasWaiter, 0) == 1)
-            {
-                _waitSource.SetException(e);
-            }
-        }
-
-        public void SignalWaiter(CancellationToken token)
-            => CancelWaiter(token);
-
-        private void CancelWaiter(CancellationToken cancellationToken)
-        {
-            Debug.Assert(cancellationToken.IsCancellationRequested);
-
-            if (Interlocked.Exchange(ref _hasWaiter, 0) == 1)
-            {
-#if NETFRAMEWORK
-                _waitSource.SetException(new OperationCanceledException(cancellationToken));
-#else
-                _waitSource.SetException(ExceptionDispatchInfo.SetCurrentStackTrace(new OperationCanceledException(cancellationToken)));
-#endif
-            }
-        }
-
-        private void Reset()
-        {
-            if (_hasWaiter != 0)
-            {
-                throw new InvalidOperationException("Concurrent use is not supported");
-            }
-
-            _waitSource.Reset();
-            Volatile.Write(ref _hasWaiter, 1);
-        }
-
-        public ValueTask<T> WaitAsync(CancellationToken cancellationToken)
-        {
-            _waitSource.RunContinuationsAsynchronously = true;
-
-#if NETFRAMEWORK
-            var callBack = (object? s) => ((ResettableValueTaskSource<T>)s!).CancelWaiter(cancellationToken);
-            _waitSourceCancellation = cancellationToken.Register(callBack, this);
-#else
-            _waitSourceCancellation = cancellationToken.UnsafeRegister(static (s, token) => ((ResettableValueTaskSource<T>)s!).CancelWaiter(token), this);
-#endif
-
-            return new ValueTask<T>(this, _waitSource.Version);
-        }
-    }
-
     internal sealed class WinHttpRequestState
-        : IDisposable, IValueTaskSource
+        : IDisposable
     {
 #if DEBUG
         private static int s_dbg_allocated;
@@ -120,7 +29,9 @@ namespace System.Net.Http
         private IntPtr s_dbg_requestHandle;
 #endif
 
-        private ManualResetValueTaskSourceCore<bool> _mrvtsc; // cannot be readonly
+        private readonly ResettableValueTaskSource<bool> _handlerTaskSource;
+        private readonly ResettableValueTaskSource<bool> _writeTaskSource;
+        private readonly ResettableValueTaskSource<int> _readTaskSource;
 
         // A GCHandle for this operation object.
         // This is owned by the callback and will be deallocated when the sessionHandle has been closed.
@@ -133,10 +44,14 @@ namespace System.Net.Http
 #if DEBUG
             Interlocked.Increment(ref s_dbg_allocated);
 #endif
-            _mrvtsc = new ManualResetValueTaskSourceCore<bool> { RunContinuationsAsynchronously = true };
+            _handlerTaskSource = new ResettableValueTaskSource<bool>();
+            _writeTaskSource = new ResettableValueTaskSource<bool>();
+            _readTaskSource = new ResettableValueTaskSource<int>();
         }
 
-        public short Version => _mrvtsc.Version;
+        public ResettableValueTaskSource<bool> HandlerTaskSource => _handlerTaskSource;
+        public ResettableValueTaskSource<bool> WriteTaskSource => _writeTaskSource;
+        public ResettableValueTaskSource<int> ReadTaskSource => _readTaskSource;
 
         public void Pin()
         {
@@ -189,8 +104,9 @@ namespace System.Net.Http
                 RequestHandle = null;
             }
 
-            _waiterCount = 0;
-            ReleaseForAsyncCompletion();
+            ReadTaskSource.Reset();
+            WriteTaskSource.Reset();
+            HandlerTaskSource.Reset();
         }
 
         public CancellationToken CancellationToken { get; set; }
@@ -245,8 +161,6 @@ namespace System.Net.Http
         public HttpStatusCode LastStatusCode { get; set; }
 
         public bool RetryRequest { get; set; }
-
-        public ResettableValueTaskSource<int> LifecycleAwaitable { get; set; } = new();
 
         public bool AsyncReadInProgress { get; set; }
 
@@ -345,79 +259,5 @@ namespace System.Net.Http
             Dispose(true);
         }
         #endregion
-
-        // TODO: localize
-        private static void ThrowIncorrectTokenException() => throw new InvalidOperationException("Incorrect Token");
-
-        private int _waiterCount = 1;
-
-        private void ReleaseForAsyncCompletion()
-        {
-            if (_waiterCount != 0)
-            {
-                throw new InvalidOperationException("Concurrent use is not supported");
-            }
-
-            _mrvtsc.Reset();
-
-            Volatile.Write(ref _waiterCount, 1);
-
-            //BoolResult = false;
-            //IntResult = 0;
-            //LongResult = 0;
-        }
-
-        public void SetResult(bool result)
-        {
-            Debug.Assert(_waiterCount == 1);
-
-            if (Interlocked.Exchange(ref _waiterCount, 0) == 1)
-            {
-                _mrvtsc.SetResult(result);
-            }
-            else
-            {
-                throw new InvalidOperationException();
-            }
-        }
-
-        public void SetResult(CancellationToken t)
-            => SetResult(new OperationCanceledException(t));
-
-        public void SetResult(Exception e)
-        {
-            Debug.Assert(_waiterCount == 1);
-
-            if (Interlocked.Exchange(ref _waiterCount, 0) == 1)
-            {
-                _mrvtsc.SetException(e);
-            }
-            else
-            {
-                throw new InvalidOperationException();
-            }
-        }
-
-        void IValueTaskSource.GetResult(short token)
-        {
-            if (token != _mrvtsc.Version)
-            {
-                ThrowIncorrectTokenException();
-            }
-
-            ReleaseForAsyncCompletion();
-        }
-
-        ValueTaskSourceStatus IValueTaskSource.GetStatus(short token)
-        {
-            var status = _mrvtsc.GetStatus(token);
-
-            Debug.WriteLine($"Status: {status} for token: {token}");
-
-            return status;
-        }
-
-        void IValueTaskSource.OnCompleted(Action<object?> continuation, object? state, short token, ValueTaskSourceOnCompletedFlags flags)
-            => _mrvtsc.OnCompleted(continuation, state, token, flags);
     }
 }

@@ -1711,7 +1711,7 @@ namespace System.Net.Http
                 }
             }
 
-            return new ValueTask(state, state.Version);
+            return state.HandlerTaskSource.ToValueTask(state.CancellationToken);
         }
 
         private static async Task InternalSendRequestBodyAsync(WinHttpRequestState state, WinHttpChunkMode chunkedModeForSend)
@@ -1738,7 +1738,8 @@ namespace System.Net.Http
                 }
             }
 
-            return new ValueTask(state, state.Version);
+
+            return state.HandlerTaskSource.ToValueTask(state.CancellationToken);
         }
     }
 }

@@ -232,12 +232,12 @@ namespace System.Net.Http
                     (uint)count,
                     IntPtr.Zero))
                 {
-                    _state.SetResult(
+                    _state.WriteTaskSource.SetResult(
                         new IOException(SR.net_http_io_write, WinHttpException.CreateExceptionUsingLastError(nameof(Interop.WinHttp.WinHttpWriteData))));
                 }
             }
 
-            return new ValueTask(_state, _state.Version);
+            return _state.WriteTaskSource.ToValueTask(token);
         }
 
         private ValueTask InternalWriteEndDataAsync(CancellationToken token)
@@ -250,12 +250,12 @@ namespace System.Net.Http
                     0,
                     IntPtr.Zero))
                 {
-                    _state.SetResult(
+                    _state.WriteTaskSource.SetResult(
                         new IOException(SR.net_http_io_write, WinHttpException.CreateExceptionUsingLastError(nameof(Interop.WinHttp.WinHttpWriteData))));
                 }
             }
 
-            return new ValueTask(_state, _state.Version);
+            return _state.WriteTaskSource.ToValueTask(token);
         }
     }
 }
