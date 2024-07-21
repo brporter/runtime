@@ -171,10 +171,8 @@ namespace System.Net.Http
         private static void OnRequestWriteComplete(WinHttpRequestState state)
         {
             Debug.Assert(state != null, "OnRequestWriteComplete: state is null");
-            Debug.Assert(state.TcsInternalWriteDataToRequestStream != null, "TcsInternalWriteDataToRequestStream is null");
-            Debug.Assert(!state.TcsInternalWriteDataToRequestStream.Task.IsCompleted, "TcsInternalWriteDataToRequestStream.Task is completed");
 
-            state.TcsInternalWriteDataToRequestStream.TrySetResult(true);
+            state.SetResult(true);
         }
 
         private static void OnRequestReceiveResponseHeadersComplete(WinHttpRequestState state)
@@ -329,7 +327,7 @@ namespace System.Net.Http
             switch (unchecked((uint)asyncResult.dwResult.ToInt32()))
             {
                 case Interop.WinHttp.API_SEND_REQUEST:
-                    state.LifecycleAwaitable.SignalWaiter(innerException);
+                    state.SetResult(innerException);
                     break;
 
                 case Interop.WinHttp.API_RECEIVE_RESPONSE:
@@ -357,7 +355,7 @@ namespace System.Net.Http
                     else
                     {
                         state.LifecycleAwaitable.SignalWaiter(innerException);
-                        // state.ValueTaskSource.SetException(innerException);
+                        state.SetResult(innerException);
                     }
                     break;
 
@@ -387,16 +385,14 @@ namespace System.Net.Http
                     break;
 
                 case Interop.WinHttp.API_WRITE_DATA:
-                    Debug.Assert(state.TcsInternalWriteDataToRequestStream != null);
                     if (asyncResult.dwError == Interop.WinHttp.ERROR_WINHTTP_OPERATION_CANCELLED)
                     {
                         if (NetEventSource.Log.IsEnabled()) NetEventSource.Error(state, "API_WRITE_DATA - ERROR_WINHTTP_OPERATION_CANCELLED");
-                        state.TcsInternalWriteDataToRequestStream.TrySetCanceled();
+                        state.SetResult(new OperationCanceledException());
                     }
                     else
                     {
-                        state.TcsInternalWriteDataToRequestStream.TrySetException(
-                            new IOException(SR.net_http_io_write, innerException));
+                        state.SetResult(new IOException(SR.net_http_io_write, innerException));
                     }
                     break;
 

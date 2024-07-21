@@ -59,7 +59,6 @@ System.Net.Http.WinHttpHandler</PackageDescription>
     <Compile Include="System\Net\Http\WinHttpCookieContainerAdapter.cs" />
     <Compile Include="System\Net\Http\WinHttpException.cs" />
     <Compile Include="System\Net\Http\WinHttpHandler.cs" />
-    <Compile Include="System\Net\Http\WinHttpAsyncWrapper.cs" />
     <Compile Include="System\Net\Http\WinHttpRequestCallback.cs" />
     <Compile Include="System\Net\Http\WinHttpRequestState.cs" />
     <Compile Include="System\Net\Http\WinHttpRequestStream.cs" />

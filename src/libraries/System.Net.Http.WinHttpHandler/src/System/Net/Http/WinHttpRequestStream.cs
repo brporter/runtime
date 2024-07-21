@@ -126,13 +126,7 @@ namespace System.Net.Http
 
             CheckDisposed();
 
-            if (_state.TcsInternalWriteDataToRequestStream != null &&
-                !_state.TcsInternalWriteDataToRequestStream.Task.IsCompleted)
-            {
-                throw new InvalidOperationException(SR.net_http_no_concurrent_io_allowed);
-            }
-
-            return InternalWriteAsync(buffer, offset, count, token);
+            return InternalWriteAsync(buffer, offset, count, token).AsTask();
         }
 
         public override void Write(byte[] buffer, int offset, int count)
@@ -192,11 +186,15 @@ namespace System.Net.Http
             }
         }
 
-        private Task InternalWriteAsync(byte[] buffer, int offset, int count, CancellationToken token)
+        private ValueTask InternalWriteAsync(byte[] buffer, int offset, int count, CancellationToken token)
         {
             if (count == 0)
             {
-                return Task.CompletedTask;
+#if NETFRAMEWORK
+                return new ValueTask(Task.CompletedTask);
+#else
+                return ValueTask.CompletedTask;
+#endif
             }
 
             return _chunkedMode == WinHttpChunkMode.Manual ?
@@ -204,7 +202,7 @@ namespace System.Net.Http
                 InternalWriteDataAsync(buffer, offset, count, token);
         }
 
-        private async Task InternalWriteChunkedModeAsync(byte[] buffer, int offset, int count, CancellationToken token)
+        private async ValueTask InternalWriteChunkedModeAsync(byte[] buffer, int offset, int count, CancellationToken token)
         {
             // WinHTTP does not fully support chunked uploads. It simply allows one to omit the 'Content-Length' header
             // and instead use the 'Transfer-Encoding: chunked' header. The caller is still required to encode the
@@ -220,13 +218,11 @@ namespace System.Net.Http
             await InternalWriteDataAsync(s_crLfTerminator, 0, s_crLfTerminator.Length, token).ConfigureAwait(false);
         }
 
-        private Task<bool> InternalWriteDataAsync(byte[] buffer, int offset, int count, CancellationToken token)
+        private ValueTask InternalWriteDataAsync(byte[] buffer, int offset, int count, CancellationToken token)
         {
             Debug.Assert(count > 0);
 
             _state.PinSendBuffer(buffer);
-            _state.TcsInternalWriteDataToRequestStream =
-                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
             lock (_state.Lock)
             {
@@ -236,19 +232,16 @@ namespace System.Net.Http
                     (uint)count,
                     IntPtr.Zero))
                 {
-                    _state.TcsInternalWriteDataToRequestStream.TrySetException(
+                    _state.SetResult(
                         new IOException(SR.net_http_io_write, WinHttpException.CreateExceptionUsingLastError(nameof(Interop.WinHttp.WinHttpWriteData))));
                 }
             }
 
-            return _state.TcsInternalWriteDataToRequestStream.Task;
+            return new ValueTask(_state, _state.Version);
         }
 
-        private Task<bool> InternalWriteEndDataAsync(CancellationToken token)
+        private ValueTask InternalWriteEndDataAsync(CancellationToken token)
         {
-            _state.TcsInternalWriteDataToRequestStream =
-                new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-
             lock (_state.Lock)
             {
                 if (!Interop.WinHttp.WinHttpWriteData(
@@ -257,12 +250,12 @@ namespace System.Net.Http
                     0,
                     IntPtr.Zero))
                 {
-                    _state.TcsInternalWriteDataToRequestStream.TrySetException(
+                    _state.SetResult(
                         new IOException(SR.net_http_io_write, WinHttpException.CreateExceptionUsingLastError(nameof(Interop.WinHttp.WinHttpWriteData))));
                 }
             }
 
-            return _state.TcsInternalWriteDataToRequestStream.Task;
+            return new ValueTask(_state, _state.Version);
         }
     }
 }

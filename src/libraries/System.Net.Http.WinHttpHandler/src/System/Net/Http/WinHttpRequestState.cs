@@ -174,8 +174,7 @@ namespace System.Net.Http
 #endif
             // Since WinHttpRequestState has a self-referenced strong GCHandle, we
             // need to clear out object references to break cycles and prevent leaks.
-            Tcs = null;
-            TcsInternalWriteDataToRequestStream = null; CancellationToken = default(CancellationToken);
+            CancellationToken = default(CancellationToken);
             RequestMessage = null;
             Handler = null;
             ServerCertificateValidationCallback = null;
@@ -189,9 +188,10 @@ namespace System.Net.Http
                 RequestHandle.Dispose();
                 RequestHandle = null;
             }
-        }
 
-        public TaskCompletionSource<HttpResponseMessage>? Tcs { get; set; }
+            _waiterCount = 0;
+            ReleaseForAsyncCompletion();
+        }
 
         public CancellationToken CancellationToken { get; set; }
 
@@ -245,9 +245,8 @@ namespace System.Net.Http
         public HttpStatusCode LastStatusCode { get; set; }
 
         public bool RetryRequest { get; set; }
-        public ResettableValueTaskSource<int> LifecycleAwaitable { get; set; } = new();
 
-        public TaskCompletionSource<bool>? TcsInternalWriteDataToRequestStream { get; set; }
+        public ResettableValueTaskSource<int> LifecycleAwaitable { get; set; } = new();
 
         public bool AsyncReadInProgress { get; set; }
 
@@ -375,6 +374,23 @@ namespace System.Net.Http
             if (Interlocked.Exchange(ref _waiterCount, 0) == 1)
             {
                 _mrvtsc.SetResult(result);
+            }
+            else
+            {
+                throw new InvalidOperationException();
+            }
+        }
+
+        public void SetResult(CancellationToken t)
+            => SetResult(new OperationCanceledException(t));
+
+        public void SetResult(Exception e)
+        {
+            Debug.Assert(_waiterCount == 1);
+
+            if (Interlocked.Exchange(ref _waiterCount, 0) == 1)
+            {
+                _mrvtsc.SetException(e);
             }
             else
             {

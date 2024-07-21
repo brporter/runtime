@@ -878,13 +878,18 @@ namespace System.Net.Http
 
             if (state.CancellationToken.IsCancellationRequested)
             {
+                var token = state.CancellationToken;
                 state.ClearSendRequestState();
-                state.CancellationToken.ThrowIfCancellationRequested();
-                return new HttpResponseMessage();
+
+                token.ThrowIfCancellationRequested();
+
+                Debug.Assert(false); // should not be reachable
             }
 
-            if (state.RequestMessage.Version != HttpVersion.Version10 && state.RequestMessage.Version != HttpVersion.Version11
-                && state.RequestMessage.Version != HttpVersion20 && state.RequestMessage.Version != HttpVersion30)
+            if (state.RequestMessage.Version != HttpVersion.Version10
+                && state.RequestMessage.Version != HttpVersion.Version11
+                && state.RequestMessage.Version != HttpVersion20
+                && state.RequestMessage.Version != HttpVersion30)
             {
                 throw new NotSupportedException(SR.net_http_unsupported_version);
             }
@@ -1593,22 +1598,18 @@ namespace System.Net.Http
 
         private static void HandleAsyncException(WinHttpRequestState state, Exception ex)
         {
-            Debug.Assert(state.Tcs != null);
-            if (state.CancellationToken.IsCancellationRequested)
-            {
-                // If the exception was due to the cancellation token being canceled, throw cancellation exception.
-                state.Tcs.TrySetCanceled(state.CancellationToken);
-            }
-            else if (ex is WinHttpException || ex is IOException || ex is InvalidOperationException)
+            state.CancellationToken.ThrowIfCancellationRequested();
+
+            if (ex is WinHttpException || ex is IOException || ex is InvalidOperationException)
             {
                 // Wrap expected exceptions as HttpRequestExceptions since this is considered an error during
                 // execution. All other exception types, including ArgumentExceptions and ProtocolViolationExceptions
                 // are 'unexpected' or caused by user error and should not be wrapped.
-                state.Tcs.TrySetException(new HttpRequestException(SR.net_http_client_execution_error, ex));
+                throw new HttpRequestException(SR.net_http_client_execution_error, ex);
             }
             else
             {
-                state.Tcs.TrySetException(ex);
+                throw ex;
             }
         }
 
