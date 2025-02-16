@@ -112,6 +112,17 @@ internal static partial class Interop
             uint bufferSize,
             IntPtr parameterIgnoredAndShouldBeNullForAsync);
 
+        [LibraryImport(Interop.Libraries.WinHttp, SetLastError = false, StringMarshalling = StringMarshalling.Utf16)]
+        public static partial uint WinHttpReadDataEx(
+            SafeWinHttpHandle requestHandle,
+            IntPtr buffer,
+            uint bytesToRead,
+            IntPtr parameterIgnoredAndShouldBeNullForAsync,
+            ulong flags,
+            uint propertySize,
+            IntPtr property);
+
+
         [LibraryImport(Interop.Libraries.WinHttp, SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static partial bool WinHttpQueryHeaders(
