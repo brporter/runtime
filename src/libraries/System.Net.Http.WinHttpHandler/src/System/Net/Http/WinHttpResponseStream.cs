@@ -104,6 +104,69 @@ namespace System.Net.Http
             return CopyToAsyncCore(destination, ArrayPool<byte>.Shared.Rent(bufferSize), cancellationToken);
         }
 
+#if NETSTANDARD2_1 || NET
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            // Check that there are no other pending read operations
+            if (Interlocked.CompareExchange(ref _state.AsyncReadInProgress, 1, 0) == 1)
+            {
+                throw new InvalidOperationException(SR.net_http_no_concurrent_io_allowed);
+            }
+
+            var bytesRead = 0;
+
+            try
+            {
+                using var ctr = cancellationToken.Register(s => ((WinHttpResponseStream)s!).CancelPendingResponseStreamReadOperation(), this);
+                var bufferPtr = _state.PinReceiveBuffer(buffer);
+
+                // Loop until there's no more data to be read
+                while (true)
+                {
+                    // Read the available data
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var result = uint.MaxValue;
+
+                    lock (_state.Lock)
+                    {
+                        result = Interop.WinHttp.WinHttpReadDataEx(_requestHandle, (nint)bufferPtr, (uint)buffer.Length, IntPtr.Zero, 0, 0, IntPtr.Zero);
+
+                        if (result != Interop.WinHttp.ERROR_IO_PENDING && result != Interop.WinHttp.ERROR_SUCCESS)
+                        {
+                            throw new IOException(SR.net_http_io_read, WinHttpException.CreateExceptionUsingError((int)result, nameof(Interop.WinHttp.WinHttpReadDataEx)));
+                        }
+                    }
+
+                    if (result == Interop.WinHttp.ERROR_SUCCESS)
+                    {
+                        // I/O finished synchronously, no need to await
+                        bytesRead = (int)_state.CurrentBytesRead;
+                    }
+                    else
+                    {
+                        bytesRead = await _state.LifecycleAwaitable;
+                    }
+
+                    if (bytesRead == 0)
+                    {
+                        ReadResponseTrailers();
+                        break;
+                    }
+                    Debug.Assert(bytesRead > 0);
+                }
+            }
+            finally
+            {
+                _state.AsyncReadInProgress = 0;
+            }
+
+            // Leaving buffer pinned as it is in ReadAsync.  It'll get unpinned when another read
+            // request is made with a different buffer or when the state is cleared.
+
+            return bytesRead;
+        }
+#endif
+
         private async Task CopyToAsyncCore(Stream destination, byte[] buffer, CancellationToken cancellationToken)
         {
             // Check that there are no other pending read operations
@@ -120,21 +183,35 @@ namespace System.Net.Http
                 {
                     // Read the available data
                     cancellationToken.ThrowIfCancellationRequested();
+                    var result = uint.MaxValue;
+                    var bytesRead = 0;
+
                     lock (_state.Lock)
                     {
-                        var result = Interop.WinHttp.WinHttpReadDataEx(_requestHandle, Marshal.UnsafeAddrOfPinnedArrayElement(buffer, 0), (uint)buffer.Length, IntPtr.Zero, 0, 0, IntPtr.Zero);
+                        result = Interop.WinHttp.WinHttpReadDataEx(_requestHandle, Marshal.UnsafeAddrOfPinnedArrayElement(buffer, 0), (uint)buffer.Length, IntPtr.Zero, 0, 0, IntPtr.Zero);
 
                         if (result != Interop.WinHttp.ERROR_IO_PENDING && result != Interop.WinHttp.ERROR_SUCCESS)
                         {
                             throw new IOException(SR.net_http_io_read, WinHttpException.CreateExceptionUsingError((int)result, nameof(Interop.WinHttp.WinHttpReadDataEx)));
                         }
                     }
-                    int bytesRead = await _state.LifecycleAwaitable;
+
+                    if (result == Interop.WinHttp.ERROR_SUCCESS)
+                    {
+                        // I/O finished synchronously, no need to await
+                        bytesRead = (int)_state.CurrentBytesRead;
+                    }
+                    else
+                    {
+                        bytesRead = await _state.LifecycleAwaitable;
+                    }
+
                     if (bytesRead == 0)
                     {
                         ReadResponseTrailers();
                         break;
                     }
+
                     Debug.Assert(bytesRead > 0);
 
                     // Write that data out to the output stream

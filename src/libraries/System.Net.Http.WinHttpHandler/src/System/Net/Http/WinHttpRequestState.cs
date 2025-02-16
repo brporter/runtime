@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Buffers;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Net.Security;
@@ -158,6 +159,7 @@ namespace System.Net.Http
 
         private GCHandle _cachedReceivePinnedBuffer;
         private GCHandle _cachedSendPinnedBuffer;
+        private MemoryHandle _cachedReceivePinnedMemoryHandle;
 
         public void PinReceiveBuffer(byte[] buffer)
         {
@@ -170,6 +172,19 @@ namespace System.Net.Http
 
                 _cachedReceivePinnedBuffer = GCHandle.Alloc(buffer, GCHandleType.Pinned);
             }
+        }
+
+        public unsafe nint PinReceiveBuffer(Memory<byte> buffer)
+        {
+            var handle = buffer.Pin();
+
+            if (handle.Pointer != _cachedReceivePinnedMemoryHandle.Pointer)
+            {
+                _cachedReceivePinnedMemoryHandle.Dispose();
+                _cachedReceivePinnedMemoryHandle = handle;
+            }
+
+            return (nint)handle.Pointer;
         }
 
         public void PinSendBuffer(byte[] buffer)
