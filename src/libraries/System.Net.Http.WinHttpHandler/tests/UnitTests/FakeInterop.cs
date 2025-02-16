@@ -283,6 +283,52 @@ internal static partial class Interop
             return true;
         }
 
+        public static uint WinHttpReadDataEx(
+            SafeWinHttpHandle requestHandle,
+            IntPtr buffer,
+            uint bytesToRead,
+            IntPtr parameterIgnoredAndShouldBeNullForAsync,
+            ulong flags,
+            uint propertySize,
+            IntPtr property)
+        {
+            if (parameterIgnoredAndShouldBeNullForAsync != IntPtr.Zero)
+            {
+                return WinHttp.ERROR_INVALID_PARAMETER;
+            }
+
+            if (TestControl.WinHttpReadData.ErrorWithApiCall)
+            {
+                return WinHttp.ERROR_INVALID_HANDLE;
+            }
+
+            uint bytesRead;
+            TestServer.ReadFromResponseBody(buffer, bytesToRead, out bytesRead);
+
+            Task.Run(() => {
+                var fakeHandle = (FakeSafeWinHttpHandle)requestHandle;
+                bool aborted = !fakeHandle.DelayOperation(TestControl.WinHttpReadData.Delay);
+
+                if (aborted || TestControl.WinHttpReadData.ErrorOnCompletion)
+                {
+                    Interop.WinHttp.WINHTTP_ASYNC_RESULT asyncResult;
+                    asyncResult.dwResult = new IntPtr((int)Interop.WinHttp.API_READ_DATA);
+                    asyncResult.dwError = aborted ? Interop.WinHttp.ERROR_WINHTTP_OPERATION_CANCELLED :
+                        Interop.WinHttp.ERROR_WINHTTP_CONNECTION_ERROR;
+
+                    TestControl.WinHttpReadData.Wait();
+                    fakeHandle.InvokeCallback(Interop.WinHttp.WINHTTP_CALLBACK_STATUS_REQUEST_ERROR, asyncResult);
+                }
+                else
+                {
+                    TestControl.WinHttpReadData.Wait();
+                    fakeHandle.InvokeCallback(Interop.WinHttp.WINHTTP_CALLBACK_STATUS_READ_COMPLETE, buffer, bytesRead);
+                }
+            });
+
+            return WinHttp.ERROR_SUCCESS;
+        }
+
         public static bool WinHttpQueryHeaders(
             SafeWinHttpHandle requestHandle,
             uint infoLevel, string name,
