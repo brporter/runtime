@@ -142,7 +142,7 @@ namespace System.Threading.Tasks
 #if DEBUG
             if (expectedCompleted)
             {
-                Debug.Assert(_resultSet ^ (_error != null));
+                Debug.Assert(_resultSet ^ (_error != null), $"_resultSet: {_resultSet}, _error != null: {_error != null}");
             }
             else
             {

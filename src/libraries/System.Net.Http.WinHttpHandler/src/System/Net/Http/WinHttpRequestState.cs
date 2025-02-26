@@ -31,7 +31,7 @@ namespace System.Net.Http
         // This is owned by the callback and will be deallocated when the sessionHandle has been closed.
         private GCHandle _operationHandle;
         private WinHttpTransportContext? _transportContext;
-        private volatile bool _disposed; // To detect redundant calls.
+        private volatile bool _disposed;   // To detect redundant calls.
 
         public WinHttpRequestState()
         {
