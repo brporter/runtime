@@ -115,21 +115,69 @@ namespace System.Net.Http
             {
                 using var ctr = cancellationToken.Register(s => ((WinHttpResponseStream)s!).CancelPendingResponseStreamReadOperation(), this);
                 _state.PinReceiveBuffer(buffer);
+
                 // Loop until there's no more data to be read
                 while (true)
                 {
                     // Read the available data
                     cancellationToken.ThrowIfCancellationRequested();
-                    lock (_state.Lock)
-                    {
-                        var result = Interop.WinHttp.WinHttpReadDataEx(_requestHandle, Marshal.UnsafeAddrOfPinnedArrayElement(buffer, 0), (uint)buffer.Length, IntPtr.Zero, 0, 0, IntPtr.Zero);
 
-                        if (result != Interop.WinHttp.ERROR_IO_PENDING && result != Interop.WinHttp.ERROR_SUCCESS)
+                    var bytesRead = 0;
+
+                    if (!Interop.WinHttpFeature.ReadDataExAvailable)
+                    {
+                        // Query for data available
+                        lock (_state.Lock)
                         {
-                            throw new IOException(SR.net_http_io_read, WinHttpException.CreateExceptionUsingError((int)result, nameof(Interop.WinHttp.WinHttpReadDataEx)));
+                            if (!Interop.WinHttp.WinHttpQueryDataAvailable(_requestHandle, IntPtr.Zero))
+                            {
+                                throw new IOException(SR.net_http_io_read, WinHttpException.CreateExceptionUsingLastError(nameof(Interop.WinHttp.WinHttpQueryDataAvailable)));
+                            }
+                        }
+                        int bytesAvailable = await _state.LifecycleAwaitable;
+                        if (bytesAvailable == 0)
+                        {
+                            ReadResponseTrailers();
+                            break;
+                        }
+                        Debug.Assert(bytesAvailable > 0);
+
+                        // Read the available data
+                        cancellationToken.ThrowIfCancellationRequested();
+                        lock (_state.Lock)
+                        {
+                            if (!Interop.WinHttp.WinHttpReadData(_requestHandle, Marshal.UnsafeAddrOfPinnedArrayElement(buffer, 0), (uint)Math.Min(bytesAvailable, buffer.Length), IntPtr.Zero))
+                            {
+                                throw new IOException(SR.net_http_io_read, WinHttpException.CreateExceptionUsingLastError(nameof(Interop.WinHttp.WinHttpReadData)));
+                            }
+                        }
+                        bytesRead = await _state.LifecycleAwaitable;
+                    }
+                    else
+                    {
+                        var result = uint.MaxValue;
+
+                        lock (_state.Lock)
+                        {
+                            result = Interop.WinHttp.WinHttpReadDataEx(_requestHandle, Marshal.UnsafeAddrOfPinnedArrayElement(buffer, 0), (uint)buffer.Length, IntPtr.Zero, 0, 0, IntPtr.Zero);
+
+                            if (result != Interop.WinHttp.ERROR_IO_PENDING && result != Interop.WinHttp.ERROR_SUCCESS)
+                            {
+                                throw new IOException(SR.net_http_io_read, WinHttpException.CreateExceptionUsingError((int)result, nameof(Interop.WinHttp.WinHttpReadDataEx)));
+                            }
+                        }
+
+                        if (result == Interop.WinHttp.ERROR_SUCCESS
+                            || (result == Interop.WinHttp.ERROR_IO_PENDING && _state.LifecycleAwaitable.IsCompleted))
+                        {
+                            bytesRead = (int)_state.LifecycleAwaitable.GetResult();
+                        }
+                        else
+                        {
+                            bytesRead = await _state.LifecycleAwaitable;
                         }
                     }
-                    int bytesRead = await _state.LifecycleAwaitable;
+
                     if (bytesRead == 0)
                     {
                         ReadResponseTrailers();
@@ -208,31 +256,61 @@ namespace System.Net.Http
             {
                 using var ctr = token.Register(s => ((WinHttpResponseStream)s!).CancelPendingResponseStreamReadOperation(), this);
                 _state.PinReceiveBuffer(buffer);
-                lock (_state.Lock)
+
+                var bytesRead = 0;
+
+                if (!Interop.WinHttpFeature.ReadDataExAvailable)
                 {
-                    Debug.Assert(!_requestHandle.IsInvalid);
-                    if (!Interop.WinHttp.WinHttpQueryDataAvailable(_requestHandle, IntPtr.Zero))
+                    lock (_state.Lock)
                     {
-                        throw new IOException(SR.net_http_io_read, WinHttpException.CreateExceptionUsingLastError(nameof(Interop.WinHttp.WinHttpQueryDataAvailable)));
+                        Debug.Assert(!_requestHandle.IsInvalid);
+                        if (!Interop.WinHttp.WinHttpQueryDataAvailable(_requestHandle, IntPtr.Zero))
+                        {
+                            throw new IOException(SR.net_http_io_read, WinHttpException.CreateExceptionUsingLastError(nameof(Interop.WinHttp.WinHttpQueryDataAvailable)));
+                        }
+                    }
+
+                    int bytesAvailable = await _state.LifecycleAwaitable;
+
+                    lock (_state.Lock)
+                    {
+                        Debug.Assert(!_requestHandle.IsInvalid);
+                        if (!Interop.WinHttp.WinHttpReadData(
+                            _requestHandle,
+                            Marshal.UnsafeAddrOfPinnedArrayElement(buffer, offset),
+                            (uint)Math.Min(bytesAvailable, count),
+                            IntPtr.Zero))
+                        {
+                            throw new IOException(SR.net_http_io_read, WinHttpException.CreateExceptionUsingLastError(nameof(Interop.WinHttp.WinHttpReadData)));
+                        }
+                    }
+
+                    bytesRead = await _state.LifecycleAwaitable;
+                }
+                else
+                {
+                    var result = uint.MaxValue;
+
+                    lock (_state.Lock)
+                    {
+                        result = Interop.WinHttp.WinHttpReadDataEx(_requestHandle, Marshal.UnsafeAddrOfPinnedArrayElement(buffer, offset), (uint)buffer.Length, IntPtr.Zero, 0, 0, IntPtr.Zero);
+
+                        if (result != Interop.WinHttp.ERROR_IO_PENDING && result != Interop.WinHttp.ERROR_SUCCESS)
+                        {
+                            throw new IOException(SR.net_http_io_read, WinHttpException.CreateExceptionUsingError((int)result, nameof(Interop.WinHttp.WinHttpReadDataEx)));
+                        }
+                    }
+
+                    if (result == Interop.WinHttp.ERROR_SUCCESS
+                        || (result == Interop.WinHttp.ERROR_IO_PENDING && _state.LifecycleAwaitable.IsCompleted))
+                    {
+                        bytesRead = (int)_state.LifecycleAwaitable.GetResult();
+                    }
+                    else
+                    {
+                        bytesRead = await _state.LifecycleAwaitable;
                     }
                 }
-
-                int bytesAvailable = await _state.LifecycleAwaitable;
-
-                lock (_state.Lock)
-                {
-                    Debug.Assert(!_requestHandle.IsInvalid);
-                    if (!Interop.WinHttp.WinHttpReadData(
-                        _requestHandle,
-                        Marshal.UnsafeAddrOfPinnedArrayElement(buffer, offset),
-                        (uint)Math.Min(bytesAvailable, count),
-                        IntPtr.Zero))
-                    {
-                        throw new IOException(SR.net_http_io_read, WinHttpException.CreateExceptionUsingLastError(nameof(Interop.WinHttp.WinHttpReadData)));
-                    }
-                }
-
-                int bytesRead = await _state.LifecycleAwaitable;
 
                 if (bytesRead == 0)
                 {

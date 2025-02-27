@@ -2,6 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 #if NET
 using System.Runtime.InteropServices.Marshalling;
@@ -10,6 +12,38 @@ using System.Text;
 
 internal static partial class Interop
 {
+    internal static partial class WinHttpFeature
+    {
+        [LibraryImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr LoadLibrary(string lpFileName);
+
+        [LibraryImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr GetProcAddress(IntPtr hModule, string lpProcName);
+
+        [LibraryImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool FreeLibrary(IntPtr hModule);
+
+        public static Lazy<bool> ReadDataExAvailable = new(() =>
+        {
+            var moduleHandle = LoadLibrary("winhttp.dll");
+            if (moduleHandle == IntPtr.Zero)
+            {
+                return false;
+            }
+
+            try
+            {
+                var procAddress = GetProcAddress(moduleHandle, "WinHttpReadDataEx");
+                return procAddress != IntPtr.Zero;
+            }
+            finally
+            {
+                FreeLibrary(moduleHandle);
+            }
+        }, true);
+    }
+
     internal static partial class WinHttp
     {
         [LibraryImport(Interop.Libraries.WinHttp, SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
