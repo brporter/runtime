@@ -78,6 +78,40 @@ internal static partial class Interop
         }
     }
 
+    internal static partial class WinHttpFeature
+    {
+        [LibraryImport("kernel32.dll", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+        private static partial IntPtr LoadLibrary(string lpFileName);
+
+        [LibraryImport("kernel32.dll", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+        private static partial IntPtr GetProcAddress(IntPtr hModule, string lpProcName);
+
+        [LibraryImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static partial bool FreeLibrary(IntPtr hModule);
+
+        private static readonly Lazy<bool> s_readDataExAvailable = new(() =>
+        {
+            var moduleHandle = LoadLibrary("winhttp.dll");
+            if (moduleHandle == IntPtr.Zero)
+            {
+                return false;
+            }
+
+            try
+            {
+                var procAddress = GetProcAddress(moduleHandle, "WinHttpReadDataEx");
+                return procAddress != IntPtr.Zero;
+            }
+            finally
+            {
+                FreeLibrary(moduleHandle);
+            }
+        }, true);
+
+        public static bool ReadDataExAvailable => s_readDataExAvailable.Value;
+    }
+
     internal static partial class WinHttp
     {
         public static SafeWinHttpHandle WinHttpOpen(
