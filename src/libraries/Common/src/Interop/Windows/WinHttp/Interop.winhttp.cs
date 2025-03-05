@@ -9,22 +9,23 @@ using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.Marshalling;
 #endif
 using System.Text;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 internal static partial class Interop
 {
     internal static partial class WinHttpFeature
     {
-        [LibraryImport("kernel32.dll", SetLastError = true)]
-        private static extern IntPtr LoadLibrary(string lpFileName);
+        [LibraryImport("kernel32.dll", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+        private static partial IntPtr LoadLibrary(string lpFileName);
 
-        [LibraryImport("kernel32.dll", SetLastError = true)]
-        private static extern IntPtr GetProcAddress(IntPtr hModule, string lpProcName);
+        [LibraryImport("kernel32.dll", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+        private static partial IntPtr GetProcAddress(IntPtr hModule, string lpProcName);
 
         [LibraryImport("kernel32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool FreeLibrary(IntPtr hModule);
+        private static partial bool FreeLibrary(IntPtr hModule);
 
-        public static Lazy<bool> ReadDataExAvailable = new(() =>
+        private static Lazy<bool> s_ReadDataExAvailable = new(() =>
         {
             var moduleHandle = LoadLibrary("winhttp.dll");
             if (moduleHandle == IntPtr.Zero)
@@ -42,6 +43,8 @@ internal static partial class Interop
                 FreeLibrary(moduleHandle);
             }
         }, true);
+
+        public static bool ReadDataExAvailable => s_ReadDataExAvailable.Value;
     }
 
     internal static partial class WinHttp
@@ -145,6 +148,16 @@ internal static partial class Interop
             IntPtr buffer,
             uint bufferSize,
             IntPtr parameterIgnoredAndShouldBeNullForAsync);
+
+        [LibraryImport(Interop.Libraries.WinHttp, SetLastError = true)]
+        public static partial int WinHttpReadDataEx(
+            SafeWinHttpHandle requestHandle,
+            IntPtr buffer,
+            uint bytesToRead,
+            ref uint bytesRead,
+            ulong flags,
+            int cbReservedAndMustBeZero,
+            IntPtr pvReservedAndMustBeZero);
 
         [LibraryImport(Interop.Libraries.WinHttp, SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
         [return: MarshalAs(UnmanagedType.Bool)]
