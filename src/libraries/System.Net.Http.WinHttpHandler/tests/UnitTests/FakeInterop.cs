@@ -78,6 +78,11 @@ internal static partial class Interop
         }
     }
 
+    internal static partial class WinHttpFeature
+    {
+        public static bool ReadDataExAvailable => TestControl.WinHttpReadDataExAvailable;
+    }
+
     internal static partial class WinHttp
     {
         public static SafeWinHttpHandle WinHttpOpen(

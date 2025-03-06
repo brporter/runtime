@@ -12,6 +12,7 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
         public static ApiControl WinHttpOpen { get; private set; }
         public static ApiControl WinHttpQueryDataAvailable { get; private set; }
         public static ApiControl WinHttpReadData { get; private set; }
+        public static ApiControl WinHttpReadDataEx { get; private set; }
         public static ApiControl WinHttpReceiveResponse { get; private set; }
         public static ApiControl WinHttpWriteData { get; private set; }
 
@@ -19,6 +20,7 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
 
         public static bool WinHttpAutomaticProxySupport { get; set; }
         public static bool WinHttpDecompressionSupport { get; set; }
+        public static bool WinHttpReadDataExAvailable { get; set; }
 
         public static bool PACFileNotDetectedOnNetwork { get; set; }
 
@@ -29,11 +31,13 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
             WinHttpOpen = new ApiControl();
             WinHttpQueryDataAvailable = new ApiControl();
             WinHttpReadData = new ApiControl();
+            WinHttpReadDataEx = new ApiControl();
             WinHttpReceiveResponse = new ApiControl();
             WinHttpWriteData = new ApiControl();
 
             WinHttpAutomaticProxySupport = true;
             WinHttpDecompressionSupport = true;
+            WinHttpReadDataExAvailable = false;
 
             LastWin32Error = 0;
 

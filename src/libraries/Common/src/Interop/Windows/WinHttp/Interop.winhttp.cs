@@ -9,7 +9,6 @@ using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.Marshalling;
 #endif
 using System.Text;
-using static System.Runtime.InteropServices.JavaScript.JSType;
 
 internal static partial class Interop
 {
@@ -150,11 +149,11 @@ internal static partial class Interop
             IntPtr parameterIgnoredAndShouldBeNullForAsync);
 
         [LibraryImport(Interop.Libraries.WinHttp, SetLastError = true)]
-        public static partial int WinHttpReadDataEx(
+        public static partial uint WinHttpReadDataEx(
             SafeWinHttpHandle requestHandle,
             IntPtr buffer,
             uint bytesToRead,
-            ref uint bytesRead,
+            IntPtr bytesReadIgnoredMustBeZeroWhenAsync,
             ulong flags,
             int cbReservedAndMustBeZero,
             IntPtr pvReservedAndMustBeZero);
