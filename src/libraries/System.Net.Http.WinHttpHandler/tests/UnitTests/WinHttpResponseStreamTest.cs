@@ -238,6 +238,20 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
         {
             Stream stream = MakeResponseStream();
 
+            TestControl.WinHttpReadDataExAvailable = false;
+            TestControl.WinHttpReadData.ErrorWithApiCall = true;
+
+            Task t = stream.ReadAsync(new byte[1], 0, 1);
+            AggregateException ex = Assert.Throws<AggregateException>(() => t.Wait());
+            Assert.IsType<IOException>(ex.InnerException);
+        }
+
+        [Fact]
+        public void ReadAsync_ReadDataExFailsWithApiCall_TaskIsFaultedWithIOException()
+        {
+            Stream stream = MakeResponseStream();
+
+            TestControl.WinHttpReadDataExAvailable = true;
             TestControl.WinHttpReadData.ErrorWithApiCall = true;
 
             Task t = stream.ReadAsync(new byte[1], 0, 1);
@@ -251,6 +265,20 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
             Stream stream = MakeResponseStream();
 
             TestControl.WinHttpReadData.ErrorOnCompletion = true;
+            TestControl.WinHttpReadDataExAvailable = false;
+
+            Task t = stream.ReadAsync(new byte[1], 0, 1);
+            AggregateException ex = Assert.Throws<AggregateException>(() => t.Wait());
+            Assert.IsType<IOException>(ex.InnerException);
+        }
+
+        [Fact]
+        public void ReadAsync_ReadDataExFailsOnCompletionCallback_TaskIsFaultedWithIOException()
+        {
+            Stream stream = MakeResponseStream();
+
+            TestControl.WinHttpReadDataEx.ErrorOnCompletion = true;
+            TestControl.WinHttpReadDataExAvailable = true;
 
             Task t = stream.ReadAsync(new byte[1], 0, 1);
             AggregateException ex = Assert.Throws<AggregateException>(() => t.Wait());
@@ -282,7 +310,23 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
         {
             Stream stream = MakeResponseStream();
 
+            TestControl.WinHttpReadDataExAvailable = false;
             TestControl.WinHttpReadData.Pause();
+            Task t1 = stream.ReadAsync(new byte[1], 0, 1);
+
+            Assert.ThrowsAsync<InvalidOperationException>(() => stream.ReadAsync(new byte[1], 0, 1));
+
+            TestControl.WinHttpReadData.Resume();
+            t1.Wait();
+        }
+
+        [Fact]
+        public void ReadAsync_PriorReadInProgress_ReadDataEx_ThrowsInvalidOperationException()
+        {
+            Stream stream = MakeResponseStream();
+
+            TestControl.WinHttpReadDataExAvailable = true;
+            TestControl.WinHttpReadDataEx.Pause();
             Task t1 = stream.ReadAsync(new byte[1], 0, 1);
 
             Assert.ThrowsAsync<InvalidOperationException>(() => stream.ReadAsync(new byte[1], 0, 1));
@@ -315,6 +359,17 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
             Stream stream = MakeResponseStream();
 
             TestControl.WinHttpReadData.ErrorWithApiCall = true;
+            TestControl.WinHttpReadDataExAvailable = false;
+            Assert.Throws<IOException>(() => { stream.Read(new byte[1], 0, 1); });
+        }
+
+        [Fact]
+        public void Read_ReadDataExFailsWithApiCall_ThrowsIOException()
+        {
+            Stream stream = MakeResponseStream();
+
+            TestControl.WinHttpReadData.ErrorWithApiCall = true;
+            TestControl.WinHttpReadDataExAvailable = true;
             Assert.Throws<IOException>(() => { stream.Read(new byte[1], 0, 1); });
         }
 
@@ -324,6 +379,17 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
             Stream stream = MakeResponseStream();
 
             TestControl.WinHttpReadData.ErrorOnCompletion = true;
+            TestControl.WinHttpReadDataExAvailable = false;
+            Assert.Throws<IOException>(() => { stream.Read(new byte[1], 0, 1); });
+        }
+
+        [Fact]
+        public void Read_ReadDataExFailsOnCompletionCallback_ThrowsIOException()
+        {
+            Stream stream = MakeResponseStream();
+
+            TestControl.WinHttpReadDataEx.ErrorOnCompletion = true;
+            TestControl.WinHttpReadDataExAvailable = true;
             Assert.Throws<IOException>(() => { stream.Read(new byte[1], 0, 1); });
         }
 
